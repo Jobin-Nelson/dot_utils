@@ -1,0 +1,7 @@
+[project]
+name = "dot-utils"
+version = "0.1.0"
+description = "Testing environment for scripts inside my dotfiles"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
