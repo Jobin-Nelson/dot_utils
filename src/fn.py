@@ -14,9 +14,16 @@
 # 
 
 from abc import ABC, abstractmethod
+from collections import deque
 from functools import partial, reduce
 from inspect import signature
-from typing import TypeAlias, TypeVar, Callable, Generic, Any, overload
+from itertools import islice
+from typing import TypeAlias, TypeVar, Callable, Generic, Any, Iterable, overload
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                          Types                           ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 A = TypeVar('A')  # Success type
 B = TypeVar('B')  # Error type
@@ -26,9 +33,10 @@ E = TypeVar('E')
 
 URCallable: TypeAlias = Callable[[A], B | 'URCallable']
 
-# ======== #
-#  Monads  #
-# ======== #
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                         Monads                           ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
 
 class Maybe(Generic[A]):
     def __init__(self, value: A) -> None:
@@ -173,9 +181,11 @@ class Right(Either[B, A]):
     def __eq__(self, value: object, /) -> bool:
         return isinstance(value, Right) and self.value == self.value
 
-# =========== #
-#  Functions  #
-# =========== #
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                        Functions                         ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
 
 def curry(fn: Callable):
     def inner(arg):
@@ -201,20 +211,23 @@ def compose(*fn):
     return reduce(compose2, fn, identity)
 
 
-# Monad: TypeAlias = Maybe[A] | Either[B, A]
-# RMaybe: TypeAlias = Maybe[A] | Maybe[C] | Maybe[URCallable]
-# REither: TypeAlias = Either[B, A] | Either[B, D] | Either[B, URCallable]
-#
-# @overload
-# def liftA2(fn: URCallable[A, B], a: Maybe[A], b: Maybe[B]) -> RMaybe[A, C]: ...
-# @overload
-# def liftA2(fn: URCallable[A, C], a: Either[B, A], b: Either[B, C]) -> REither[B, A, D]: ...
-def liftA2(fn, a, b):
+def liftA2(fn: Callable, a, b) -> Maybe | Either:
     return a.map(fn).apply(b)
 
-# ============= #
-#  Combinators  #
-# ============= #
+
+def consume(iterator: Iterable, n: int | None = None) -> None:
+    "Advance the iterator n-steps ahead. If n is None, consume entirely."
+    # Use functions that consume iterators at C speed.
+    if n is None:
+        deque(iterator, maxlen=0)
+    else:
+        next(islice(iterator, n, n), None)
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                       Combinators                        ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
 
 def i  (x):       return x
 def k  (x, y):    return x

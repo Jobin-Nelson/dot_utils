@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# 
+#  _              _                _      
+# | |    ___  ___| |_ ___ ___   __| | ___ 
+# | |   / _ \/ _ \ __/ __/ _ \ / _` |/ _ \
+# | |__|  __/  __/ || (_| (_) | (_| |  __/
+# |_____\___|\___|\__\___\___/ \__,_|\___|
+#                                         
+
 """This program sets up everything for the daily leetcode problems"""
 
 from __future__ import annotations
@@ -16,6 +24,12 @@ from contextlib import closing
 from pathlib import Path
 from typing import Sequence
 
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                    Global Variables                      ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
 TODAY = datetime.datetime.now()
 LEET_DAILY_DIR = (
     Path.home()
@@ -26,6 +40,11 @@ LEET_DAILY_DIR = (
     / f"{TODAY:%Y}"
     / f"{TODAY:%B}".lower()
 )
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                     Core Functions                       ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
 def main(argv: Sequence[str] | None = None) -> int:

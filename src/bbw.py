@@ -21,9 +21,19 @@ from functools import partial
 from pathlib import Path
 from typing import Callable
 
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                    Global Variables                      ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
 # Actual workers are NUM_WORKERS * 4 (commit, push, status, result)
 NUM_WORKERS = 5
 QUEUE_MAX_SIZE = 20
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                        VCS Types                         ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
 @dataclass
@@ -74,6 +84,11 @@ async def exec_cmd(cmd: list[str], cap_output: bool = False):
     )
 
 
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                         Workers                          ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
 async def _producer(
     batch: list[Git], work_queue: asyncio.Queue, producer_completed: asyncio.Event
 ):
@@ -103,6 +118,10 @@ async def _janitor(queue: asyncio.Queue):
         queue.task_done()
 
 
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                        Callbacks                         ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
 def commit_callback(git: Git):
     return git.commit
 
@@ -115,6 +134,11 @@ def status_callback(git: Git):
     return git.status
 
 
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                     Worker Handlers                      ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
 def hook_workers_handler(
     tasks: list, in_queue: asyncio.Queue, out_queue: asyncio.Queue, callback: Callable
 ):
@@ -125,6 +149,11 @@ def hook_workers_handler(
 def hook_cleanup_handler(tasks: list, end_queue: asyncio.Queue):
     for _ in range(NUM_WORKERS):
         tasks.append(asyncio.create_task(_janitor(end_queue)))
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                     Core Functions                       ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
 async def _controller() -> int:

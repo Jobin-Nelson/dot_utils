@@ -1,28 +1,108 @@
 #!/usr/bin/env python3
+#   ___   ____ ____
+#  / _ \ / ___|  _ \
+# | | | | |   | | | |
+# | |_| | |___| |_| |
+#  \___/ \____|____/
+#
+"""Script to reorganize files"""
 
 import argparse
+import re
+import sys
 from datetime import datetime
+from enum import IntEnum
+from functools import partial
+from operator import attrgetter, truediv
 from pathlib import Path
+from typing import NoReturn, Sequence, TypeVar, Callable
 
 
-def organise_dir(dir: Path):
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                       Error Codes                        ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+class ExitCode(IntEnum):
+    PATH_NOT_FOUND = 1
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                  Functional Utilities                    ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+A = TypeVar('A')
+B = TypeVar('B')
+C = TypeVar('C')
+
+
+def compose2(f: Callable[[B], C], g: Callable[[A], B]) -> Callable[[A], C]:
+    def inner(x: A) -> C:
+        return f(g(x))
+
+    return inner
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                   Core Implementation                    ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+def bail(message: str, code: ExitCode) -> NoReturn:
+    print(message, file=sys.stderr)
+    raise SystemExit(code.value)
+
+
+def date2str(dt: datetime) -> str:
+    return dt.strftime('%Y/%b').lower()
+
+
+def match_year_month(filename: str) -> re.Match | None:
+    return re.search(r'\d{4}-\d{2}', filename)
+
+
+def match2date(match: re.Match) -> datetime:
+    return datetime.strptime(match.group(), r'%Y-%m')
+
+
+def create_parents(filename: Path) -> None:
+    filename.parent.mkdir(parents=True, exist_ok=True)
+
+
+def rename(from_path: Path, to_path: Path) -> None:
+    create_parents(to_path)
+    from_path.rename(to_path)
+
+
+def organize_file(file: Path) -> None:
+    name = attrgetter('name')
+    match_file = compose2(match_year_month, name)
+    match2str = compose2(date2str, match2date)
+    str2path = partial(truediv, file.parent)
+    match2path = compose2(str2path, match2str)
+
+    match = match_file(file)
+    # If date cannot be parsed or is already organized we return
+    if match is None or match2str(match) in str(file):
+        return
+    target_path = match2path(match) / name(file)
+    rename(file, target_path)
+
+
+def organise_dir(dir: Path) -> None:
+    if not dir.is_dir():
+        bail(f'ERROR: Path {dir} not found', ExitCode.PATH_NOT_FOUND)
+
     files = [file for file in dir.iterdir() if file.is_file()]
-    files = [file for file in files if not file.name.startswith('2024-11')]
-    [organize_file(file) for file in files]
+    for file in files:
+        organize_file(file)
 
 
-def organize_file(file: Path):
-    date = datetime.strptime(file.stem, r'%Y-%m-%d')
-    target_dir = file.parent / date.strftime('%Y/%b')
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_file = target_dir / file.name
-    file.rename(target_file)
-
-
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('dir', type=Path, help='Directory to operate on')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     organise_dir(args.dir)
 
     return 0
