@@ -5,7 +5,7 @@
 # | |_| | |___| |_| |
 #  \___/ \____|____/
 #
-"""Script to reorganize files"""
+"""Script to organize files"""
 
 import argparse
 import re
@@ -90,11 +90,11 @@ def organize_file(file: Path) -> None:
     rename(file, target_path)
 
 
-def organise_dir(dir: Path) -> None:
-    if not dir.is_dir():
-        bail(f'ERROR: Path {dir} not found', ExitCode.PATH_NOT_FOUND)
+def organise_dir(directory: Path) -> None:
+    if not directory.is_dir():
+        bail(f'ERROR: Path {directory} not found', ExitCode.PATH_NOT_FOUND)
 
-    files = [file for file in dir.iterdir() if file.is_file()]
+    files = [file for file in directory.iterdir() if file.is_file()]
     for file in files:
         organize_file(file)
 

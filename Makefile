@@ -5,6 +5,6 @@ all: migrate
 
 .PHONY: migrate
 migrate:
-	mv -u $(SCRIPTS) $(LOCAL_BIN)
+	cp -u $(SCRIPTS) $(LOCAL_BIN)
 	
 
