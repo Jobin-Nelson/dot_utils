@@ -1,7 +1,7 @@
 import unittest
 from operator import add
 from functools import partial
-from src import fn
+from src.utils import fn
 
 class Test_Maybe(unittest.TestCase):
     def test_maybe_nothing(self):

@@ -207,7 +207,7 @@ def identity(value: A) -> A:
     return value
 
 
-def compose(*fn):
+def compose(*fn: Callable) -> Callable:
     return reduce(compose2, fn, identity)
 
 
