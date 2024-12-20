@@ -22,6 +22,8 @@ import uuid
 from pathlib import Path
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import NamedTuple, NoReturn, Sequence, TypeVar, Callable
 
 
@@ -31,9 +33,47 @@ from typing import NamedTuple, NoReturn, Sequence, TypeVar, Callable
 
 
 @dataclass(frozen=True)
+class Due:
+    string: str
+    date: date
+    is_recurring: bool
+    datetime: datetime | None
+    timezone: ZoneInfo | None
+
+
+class Priority(IntEnum):
+    P1 = 1
+    P2 = 2
+    P3 = 3
+    P4 = 4
+
+
+class Label(StrEnum):
+    CHORE = 'chore'
+    WORK = 'work'
+    AUTO = 'automation'
+    MOVIE = 'movie'
+    LEARN = 'learn'
+
+
+@dataclass(frozen=True)
 class Project:
     id: int
     name: str
+
+
+@dataclass(frozen=True)
+class Task:
+    id: int
+    content: str
+    description: str
+    due: Due | None
+    labels: list[Label]
+    priority: Priority
+    project_id: int
+    section_id: int | None
+    parent_id: int | None
+    url: str
 
 
 class TodoState(NamedTuple):
@@ -50,8 +90,8 @@ class XdgDirs(StrEnum):
 class ExitCode(IntEnum):
     CREDS_NOT_FOUND = 1
     REQUEST_FAILED = 2
-    PROJECTS_NOT_FOUND = 3
-    PROJECTS_SAVE_FAILED = 4
+    PROJECT_NOT_FOUND = 3
+    TASK_NOT_FOUND = 4
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -141,6 +181,29 @@ def dict2Project(d: dict) -> Project:
     return Project(d['id'], d['name'])
 
 
+def dict2Task(d: dict) -> Task:
+    due = d.get('due')
+    return Task(
+        id=d['id'],
+        content=d['content'],
+        description=d['description'],
+        due=due
+        and Due(
+            due['string'],
+            due.get('date') and date.fromisoformat(due['date']),
+            due['is_recurring'],
+            due.get('datetime') and datetime.fromisoformat(due['datetime']),
+            due.get('timezone') and ZoneInfo(due['timezone']),
+        ),
+        labels=[Label(l) for l in d['labels']],
+        priority=Priority(d['priority']),
+        project_id=d['project_id'],
+        section_id=d.get('section_id'),
+        parent_id=d.get('parent_id'),
+        url=d['url'],
+    )
+
+
 def download(file: Path, res: HTTPResponse) -> None:
     with open(file, 'wb') as f:
         # copy 16 KB chunk
@@ -150,26 +213,52 @@ def download(file: Path, res: HTTPResponse) -> None:
                 f.write(chunk)
 
 
+def download_object(url: str, state_file: Path, exit_code: ExitCode) -> None:
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        download(state_file, request(url))
+    except Exception as e:
+        bail(
+            f'ERROR: Failed to save {state_file.name} state, REASON: {e}',
+            exit_code,
+        )
+
+
+def get_object(
+    url: str,
+    state_file: Path,
+    exit_code: ExitCode,
+    refresh: bool = False,
+) -> dict:
+    if not state_file.exists() or refresh:
+        download_object(url, state_file, exit_code)
+    try:
+        with open(state_file) as f:
+            return json.load(f)
+    except Exception as e:
+        bail(f'ERROR: Failed to read {state_file.name}, REASON: {e}', exit_code)
+
+
 def get_projects() -> list[Project]:
-    # if not todoState.projects.exists():
-    todoState.projects.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(todoState.projects, 'wb') as f:
-            download(
-                todoState.projects, request('https://api.todoist.com/rest/v2/projects')
-            )
-    except Exception as e:
-        bail(
-            f'ERROR: Failed to save project state, REASON: {e}',
-            ExitCode.PROJECTS_SAVE_FAILED,
+    return [
+        dict2Project(p)
+        for p in get_object(
+            'https://api.todoist.com/rest/v2/projects',
+            todoState.projects,
+            ExitCode.PROJECT_NOT_FOUND,
         )
-    try:
-        with open(todoState.projects) as f:
-            return json.load(f, object_hook=dict2Project)
-    except Exception as e:
-        bail(
-            f'ERROR: Failed to read projects, REASON: {e}', ExitCode.PROJECTS_NOT_FOUND
+    ]
+
+
+def get_active_tasks() -> list[Task]:
+    return [
+        dict2Task(t)
+        for t in get_object(
+            'https://api.todoist.com/rest/v2/tasks',
+            todoState.todos,
+            ExitCode.TASK_NOT_FOUND,
         )
+    ]
 
 
 def display_projects() -> None:
@@ -177,9 +266,16 @@ def display_projects() -> None:
         print(f'- {p.name}')
 
 
+def display_active_tasks() -> None:
+    for t in get_active_tasks():
+        print(f'- {t.content}')
+
+
 def get_controller(args: argparse.Namespace):
     if args.projects:
         display_projects()
+    elif args.active_tasks:
+        display_active_tasks()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -193,6 +289,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     get_group_parser = get_parser.add_mutually_exclusive_group(required=True)
     get_group_parser.add_argument(
         '-p', '--projects', action='store_true', help='Get all projects'
+    )
+    get_group_parser.add_argument(
+        '-a', '--active-tasks', action='store_true', help='Get all active tasks'
     )
     get_parser.set_defaults(func=get_controller)
 
