@@ -79,7 +79,7 @@ class Task:
 class TodoState(NamedTuple):
     creds: Path
     projects: Path
-    todos: Path
+    tasks: Path
 
 
 class XdgDirs(StrEnum):
@@ -136,7 +136,7 @@ def compose2(f: Callable[[B], C], g: Callable[[A], B]) -> Callable[[A], C]:
 todoState = TodoState(
     creds=get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
     projects=get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
-    todos=get_path(XdgDirs.STATE) / 'todoist' / 'todos.json',
+    tasks=get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
 )
 
 
@@ -255,7 +255,7 @@ def get_active_tasks() -> list[Task]:
         dict2Task(t)
         for t in get_object(
             'https://api.todoist.com/rest/v2/tasks',
-            todoState.todos,
+            todoState.tasks,
             ExitCode.TASK_NOT_FOUND,
         )
     ]
