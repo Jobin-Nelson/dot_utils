@@ -121,12 +121,18 @@ def request(
         'X-Request-Id': f'{uuid.uuid4()}',
         'Authorization': f'Bearer {get_token()}',
     }
-    req = urllib.request.Request(url, headers=default_headers | headers, data=data)
+    req = urllib.request.Request(
+        url,
+        headers=default_headers | headers,
+        data=data and json.dumps(data).encode(),
+    )
     try:
-        with urllib.request.urlopen(req, timeout=5) as f:
-            if f.status != 200:
-                raise Exception(f'Todoist responded with code {f.status}, content: {f.read().decode('utf-8')}')
-            return f
+        res = urllib.request.urlopen(req, timeout=5)
+        if res.status != 200:
+            raise Exception(
+                f'Todoist responded with code: {res.status}, content: {res.read().decode('utf-8')}'
+            )
+        return res
     except urllib.error.URLError as e:
         bail(f'ERROR: Request failed {url}, REASON: {e}', ExitCode.REQUEST_FAILED)
 
@@ -137,11 +143,11 @@ def dict2Project(d: dict) -> Project:
 
 def download(file: Path, res: HTTPResponse) -> None:
     with open(file, 'wb') as f:
-        # copy 8KB chunk
-        chunk_size = 1024 * 8
-        while chunk := res.read(chunk_size):
-            print(chunk.decode('utf-8'))
-            f.write(chunk)
+        # copy 16 KB chunk
+        chunk_size = 1024 * 16
+        with res as reader:
+            while chunk := reader.read(chunk_size):
+                f.write(chunk)
 
 
 def get_projects() -> list[Project]:
@@ -149,11 +155,9 @@ def get_projects() -> list[Project]:
     todoState.projects.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(todoState.projects, 'wb') as f:
-            response = request('https://api.todoist.com/rest/v2/projects')
-            print(response.read().decode('utf-8'))
-            # download(
-            #     todoState.projects, response
-            # )
+            download(
+                todoState.projects, request('https://api.todoist.com/rest/v2/projects')
+            )
     except Exception as e:
         bail(
             f'ERROR: Failed to save project state, REASON: {e}',
@@ -163,11 +167,12 @@ def get_projects() -> list[Project]:
         with open(todoState.projects) as f:
             return json.load(f, object_hook=dict2Project)
     except Exception as e:
-        bail(f'ERROR: Failed to read projects, REASON: {e}', ExitCode.PROJECTS_NOT_FOUND)
+        bail(
+            f'ERROR: Failed to read projects, REASON: {e}', ExitCode.PROJECTS_NOT_FOUND
+        )
 
 
 def display_projects() -> None:
-    # print(json.dumps(get_projects()))
     for p in get_projects():
         print(f'- {p.name}')
 
@@ -197,5 +202,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    # raise SystemExit(main())
-    print(request('https://api.todoist.com/rest/v2/projects').read().decode('utf-8'))
+    pass
+    raise SystemExit(main())
