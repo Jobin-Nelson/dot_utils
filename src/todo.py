@@ -44,8 +44,14 @@ class Due:
     datetime: Optional[datetime] = None
 
     def __post__init__(self):
-        self.date = date and date.fromisoformat(date)
-        self.datetime = datetime and datetime.fromisoformat(datetime)
+        self.date = (
+            date.fromisoformat(self.date) if isinstance(self.date, str) else self.date
+        )
+        self.datetime = (
+            datetime.fromisoformat(self.datetime)
+            if isinstance(self.datetime, str)
+            else self.datetime
+        )
 
 
 class Priority(IntEnum):
@@ -88,12 +94,18 @@ class Task:
     created_at: Optional[datetime] = None
 
     def __post_init__(self):
-        self.due = self.due and Due(
-            **{f: v for f, v in self.due.items() if f in DUE_FIELDS}
+        self.due = (
+            Due(**{f: v for f, v in self.due.items() if f in DUE_FIELDS})
+            if isinstance(self.due, dict)
+            else self.due
         )
         self.priority = Priority(self.priority)
         self.labels = [Label(l) for l in self.labels]
-        self.created_at = self.created_at and datetime.fromisoformat(self.created_at)
+        self.created_at = (
+            datetime.fromisoformat(self.created_at)
+            if isinstance(self.created_at, str)
+            else self.created_at
+        )
 
     def __str__(self) -> str:
         return (
@@ -157,8 +169,8 @@ def compose2(f: Callable[[B], C], g: Callable[[A], B]) -> Callable[[A], C]:
     return inner
 
 
-def get_parent_url_path(url: str) -> str:
-    return os.path.dirname(url)
+def get_object_url_path(url: str) -> str:
+    return f'{BASE_URL}/{url.removeprefix(BASE_URL + '/').partition('/')[0]}'
 
 
 def create_url(url: str, params: dict) -> str:
@@ -170,6 +182,7 @@ def create_url(url: str, params: dict) -> str:
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
+BASE_URL = "https://api.todoist.com/rest/v2"
 TASK_FIELDS = [f.name for f in fields(Task)]
 PROJECT_FIELDS = [f.name for f in fields(Project)]
 DUE_FIELDS = [f.name for f in fields(Due)]
@@ -208,7 +221,7 @@ def request(
     req = urllib.request.Request(
         url,
         headers=default_headers | headers,
-        data=data and json.dumps(data).encode('utf-8'),
+        data=data and json.dumps(data, default=str).encode('utf-8'),
         method=method,
     )
     try:
@@ -241,7 +254,18 @@ def dict2Project(d: dict) -> Project:
 
 
 def dict2Task(d: dict) -> Task:
-    return Task(**{f: v for f, v in d.items() if f in TASK_FIELDS})
+    task_fields = {f: v for f, v in d.items() if f in TASK_FIELDS}
+    task_fields['due'] = {
+        f.removeprefix('due_'): v for f, v in d.items() if f.startswith('due_')
+    } or task_fields.get('due')
+    return Task(**(task_fields))
+
+
+def task2Dict(t: Task) -> dict:
+    task_dict = asdict(t)
+    task_dict.pop('id', None)
+    due_dict = task_dict.pop('due', {}) or {}
+    return task_dict | {'due_' + k: v for k, v in due_dict.items()}
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -275,17 +299,6 @@ def get_object(
         bail(f'ERROR: Failed to read {state_file.name}, REASON: {e}', exit_code)
 
 
-def update_objects(
-    url: str,
-    data: dict | None,
-    state_file: Path,
-    exit_code: ExitCode,
-    method: str = 'POST',
-) -> None:
-    request(url, data, method)
-    download_objects(url, state_file, exit_code)
-
-
 def update_object(
     url: str,
     data: dict | None,
@@ -294,7 +307,7 @@ def update_object(
     method: str = 'POST',
 ) -> None:
     request(url, data, method)
-    download_objects(get_parent_url_path(url), state_file, exit_code)
+    download_objects(get_object_url_path(url), state_file, exit_code)
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -306,7 +319,7 @@ def get_projects() -> list[Project]:
     return [
         dict2Project(p)
         for p in get_object(
-            'https://api.todoist.com/rest/v2/projects',
+            f'{BASE_URL}/projects',
             TODO_STATE.projects,
             ExitCode.PROJECT_NOT_FOUND,
         )
@@ -317,7 +330,7 @@ def get_active_tasks() -> list[Task]:
     return [
         dict2Task(t)
         for t in get_object(
-            'https://api.todoist.com/rest/v2/tasks',
+            f'{BASE_URL}/tasks',
             TODO_STATE.tasks,
             ExitCode.TASK_NOT_FOUND,
         )
@@ -330,24 +343,19 @@ custom_sort_tasks = compose2(
 )
 
 
-def add_task(task: Task) -> None:
-    task_dict = {k: v for k, v in asdict(task).items() if v}
-    due_dict = (
-        {'due_' + k: v for k, v in task_dict.pop('due').items() if v}
-        if task_dict.get('due')
-        else {}
-    )
-    update_objects(
-        "https://api.todoist.com/rest/v2/tasks",
-        task_dict | due_dict,
+def update_task(task: Task) -> None:
+    update_object(
+        f"{BASE_URL}/tasks/{task.id}" if task.id else f"{BASE_URL}/tasks",
+        task2Dict(task),
         TODO_STATE.tasks,
         ExitCode.TASK_NOT_FOUND,
     )
 
+update_task_from_dict = compose2(update_task, dict2Task)
 
 def delete_task(task: Task) -> None:
     update_object(
-        f"https://api.todoist.com/rest/v2/tasks/{task.id}",
+        f"{BASE_URL}/tasks/{task.id}",
         None,
         TODO_STATE.tasks,
         ExitCode.TASK_NOT_FOUND,
@@ -375,7 +383,7 @@ def get_project_controller(args: argparse.Namespace) -> None:
 
 
 def get_task_controller(args: argparse.Namespace) -> None:
-    url = 'https://api.todoist.com/rest/v2/tasks'
+    url = f'{BASE_URL}/tasks'
     params = {}
     if args.filter:
         params['filter'] = args.filter
@@ -396,23 +404,9 @@ def get_task_controller(args: argparse.Namespace) -> None:
 
 def add_task_controller(args: argparse.Namespace) -> None:
     # TODO: validate section
-    due_field = args.due_string or args.due_date or args.due_datetime
-    add_task(
-        Task(
-            content=args.content,
-            description=args.description,
-            project_id=[p.id for p in get_projects() if p.name == args.project][0],
-            priority=args.priority,
-            section_id=args.section,
-            labels=args.label,
-            due=due_field
-            and Due(
-                string=due_field if args.due_string else due_field.strftime('%d %b'),
-                date=args.due_date,
-                datetime=args.due_datetime,
-            ),
-        )
-    )
+    task_fields = vars(args)
+    task_fields['project_id'] = [p.id for p in get_projects() if p.name == args.project][0]
+    update_task_from_dict(task_fields)
 
 
 def delete_task_controller(args: argparse.Namespace) -> None:
@@ -421,6 +415,33 @@ def delete_task_controller(args: argparse.Namespace) -> None:
     if not tasks_to_delete:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
     delete_task(tasks_to_delete[0])
+
+
+def update_task_controller(args: argparse.Namespace) -> None:
+    tasks = get_active_tasks()
+    tasks_to_update = [t for i, t in custom_sort_tasks(tasks) if i == args.index]
+    if not tasks_to_update:
+        bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
+
+    task = tasks_to_update[0]
+    task.content = args.content if args.content else task.content
+    task.description = args.description if args.description else task.description
+    task.labels = args.labels if args.labels else task.labels
+    task.priority = args.priority if args.priority else task.priority
+    task.description = args.description if args.description else task.description
+
+    due_field = args.due_string or args.due_date or args.due_datetime
+    org_due = task.due
+    task.due = due_field and Due(
+        string=due_field
+        if args.due_string
+        else (org_due and due_field.strftim('%d %b')),
+        date=args.due_date if args.due_date else (org_due and org_due.due_date),
+        datetime=args.due_datetime
+        if args.due_datetime
+        else (org_due and org_due.datetime),
+    )
+    update_task(task)
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -532,6 +553,58 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=f'Delete task by index in the range 1..{tasks_length}',
     )
     delete_task_parser.set_defaults(func=delete_task_controller)
+
+    # -- update sub-command
+    update_parser = subparser.add_parser('update', help='Update a Todoist object')
+    update_obj_parser = update_parser.add_subparsers(required=True)
+
+    update_task_parser = update_obj_parser.add_parser('task', help='Update a task')
+    update_task_parser.add_argument(
+        'index',
+        type=int,
+        help=f'Update task by index in the range 1..{tasks_length}',
+    )
+
+    update_task_parser.add_argument(
+        '-c',
+        '--content',
+        help=f'Update task content',
+    )
+    update_task_parser.add_argument(
+        '--description',
+        help=f'Update task description',
+    )
+    update_task_parser.add_argument(
+        '-l',
+        '--labels',
+        type=Label,
+        action='append',
+        default=[],
+        help=f'Update task labels',
+    )
+    update_task_parser.add_argument(
+        '-p',
+        '--priority',
+        type=Priority,
+        help=f'Update task Priority',
+    )
+    update_task_date_group = update_task_parser.add_mutually_exclusive_group()
+    update_task_date_group.add_argument(
+        '-d',
+        '--due-string',
+        help=f'Update task due',
+    )
+    update_task_date_group.add_argument(
+        '--due-date',
+        type=date.fromisoformat,
+        help=f'Update task due date',
+    )
+    update_task_date_group.add_argument(
+        '--due-datetime',
+        type=datetime.fromisoformat,
+        help=f'Update task due datetime',
+    )
+    update_task_parser.set_defaults(func=update_task_controller)
 
     args = parser.parse_args(argv)
     args.func(args)
