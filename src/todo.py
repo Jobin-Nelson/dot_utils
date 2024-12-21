@@ -503,17 +503,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Priority.P4,
         choices=valid_priorities,
     )
-    add_task_parser.add_argument(
+    add_task_date_group = add_task_parser.add_mutually_exclusive_group()
+    add_task_date_group.add_argument(
         '-d',
         '--due-string',
         help='Task due by',
     )
-    add_task_parser.add_argument(
+    add_task_date_group.add_argument(
         '--due-date',
         type=date.fromisoformat,
         help='Task due by date',
     )
-    add_task_parser.add_argument(
+    add_task_date_group.add_argument(
         '--due-datetime',
         type=datetime.fromisoformat,
         help='Task due by datetime',
