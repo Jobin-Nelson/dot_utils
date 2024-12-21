@@ -11,20 +11,24 @@
 Script to interact with Todoist
 """
 
+from __future__ import annotations
+
+
 import argparse
-from http.client import HTTPResponse
 import json
 import os
 import sys
 import urllib.error
-import urllib.request
 import urllib.parse
+import urllib.request
 import uuid
-from pathlib import Path
 from dataclasses import dataclass, asdict, field, fields
-from enum import IntEnum, StrEnum
 from datetime import date, datetime
-from typing import NamedTuple, NoReturn, Sequence, Optional
+from enum import IntEnum, StrEnum
+from functools import partial
+from http.client import HTTPResponse
+from pathlib import Path
+from typing import NamedTuple, NoReturn, Sequence, Optional, TypeVar, Callable
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -42,9 +46,6 @@ class Due:
     def __post__init__(self):
         self.date = date and date.fromisoformat(date)
         self.datetime = datetime and datetime.fromisoformat(datetime)
-
-
-DUE_FIELDS = [f.name for f in fields(Due)]
 
 
 class Priority(IntEnum):
@@ -67,8 +68,8 @@ class Project:
     id: int
     name: str
 
-
-PROJECT_FIELDS = [f.name for f in fields(Project)]
+    def __str__(self) -> str:
+        return f'- {self.name}'
 
 
 @dataclass(kw_only=True)
@@ -83,6 +84,8 @@ class Task:
     section_id: Optional[int] = None
     parent_id: Optional[int] = None
     due: Optional[Due] = None
+    is_completed: bool = False
+    created_at: Optional[datetime] = None
 
     def __post_init__(self):
         self.due = self.due and Due(
@@ -90,9 +93,15 @@ class Task:
         )
         self.priority = Priority(self.priority)
         self.labels = [Label(l) for l in self.labels]
+        self.created_at = self.created_at and datetime.fromisoformat(self.created_at)
 
-
-TASK_FIELDS = [f.name for f in fields(Task)]
+    def __str__(self) -> str:
+        return (
+            f' {self.is_completed and ' ' or ' '} {self.content}'
+            f'{self.due and f'  [  {self.due.string}]' or ''}'
+            f'{self.labels and f'  [ {','.join(self.labels)}]' or ''}'
+            f'{self.priority and f'  [ {self.priority.name}]' or ''}'
+        )
 
 
 class TodoState(NamedTuple):
@@ -136,10 +145,39 @@ def get_path(xdg_name: XdgDirs) -> Path:
             return to_path(os.getenv('XDG_STATE_HOME', '~/.local/state'))
 
 
+A = TypeVar('A')
+B = TypeVar('B')
+C = TypeVar('C')
+
+
+def compose2(f: Callable[[B], C], g: Callable[[A], B]) -> Callable[[A], C]:
+    def inner(x: A) -> C:
+        return f(g(x))
+
+    return inner
+
+
+def get_parent_url_path(url: str) -> str:
+    return os.path.dirname(url)
+
+
+def create_url(url: str, params: dict) -> str:
+    return f'{url}?{urllib.parse.urlencode(params)}'
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                         Globals                          ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+TASK_FIELDS = [f.name for f in fields(Task)]
+PROJECT_FIELDS = [f.name for f in fields(Project)]
+DUE_FIELDS = [f.name for f in fields(Due)]
+
 TODO_STATE = TodoState(
-    creds=get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
-    projects=get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
-    tasks=get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
+    get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
+    get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
+    get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
 )
 
 
@@ -157,7 +195,10 @@ def get_token() -> str:
 
 
 def request(
-    url: str, data: dict | None = None, headers: dict[str, str] = {}
+    url: str,
+    data: dict | None = None,
+    method: str = 'GET',
+    headers: dict[str, str] = {},
 ) -> HTTPResponse:
     default_headers = {
         'Content-Type': 'application/json',
@@ -168,25 +209,17 @@ def request(
         url,
         headers=default_headers | headers,
         data=data and json.dumps(data).encode('utf-8'),
-        method='POST' if data else 'GET',
+        method=method,
     )
     try:
         res = urllib.request.urlopen(req, timeout=5)
-        if res.status != 200:
+        if not 200 <= res.status <= 300:
             raise Exception(
                 f'Todoist responded with code: {res.status}, content: {res.read().decode('utf-8')}'
             )
         return res
     except urllib.error.URLError as e:
         bail(f'ERROR: Request failed {url}, REASON: {e}', ExitCode.REQUEST_FAILED)
-
-
-def dict2Project(d: dict) -> Project:
-    return Project(**{f: v for f, v in d.items() if f in PROJECT_FIELDS})
-
-
-def dict2Task(d: dict) -> Task:
-    return Task(**{f: v for f, v in d.items() if f in TASK_FIELDS})
 
 
 def download(file: Path, res: HTTPResponse) -> None:
@@ -198,7 +231,25 @@ def download(file: Path, res: HTTPResponse) -> None:
                 f.write(chunk)
 
 
-def download_object(url: str, state_file: Path, exit_code: ExitCode) -> None:
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                        Adapters                          ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+def dict2Project(d: dict) -> Project:
+    return Project(**{f: v for f, v in d.items() if f in PROJECT_FIELDS})
+
+
+def dict2Task(d: dict) -> Task:
+    return Task(**{f: v for f, v in d.items() if f in TASK_FIELDS})
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                    Object Operations                     ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+def download_objects(url: str, state_file: Path, exit_code: ExitCode) -> None:
     state_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         download(state_file, request(url))
@@ -216,7 +267,7 @@ def get_object(
     refresh: bool = False,
 ) -> dict:
     if not state_file.exists() or refresh:
-        download_object(url, state_file, exit_code)
+        download_objects(url, state_file, exit_code)
     try:
         with open(state_file) as f:
             return json.load(f)
@@ -224,9 +275,31 @@ def get_object(
         bail(f'ERROR: Failed to read {state_file.name}, REASON: {e}', exit_code)
 
 
-def upload_object(url: str, data: dict, state_file: Path, exit_code: ExitCode) -> None:
-    request(url, data)
-    download_object(url, state_file, exit_code)
+def update_objects(
+    url: str,
+    data: dict | None,
+    state_file: Path,
+    exit_code: ExitCode,
+    method: str = 'POST',
+) -> None:
+    request(url, data, method)
+    download_objects(url, state_file, exit_code)
+
+
+def update_object(
+    url: str,
+    data: dict | None,
+    state_file: Path,
+    exit_code: ExitCode,
+    method: str = 'POST',
+) -> None:
+    request(url, data, method)
+    download_objects(get_parent_url_path(url), state_file, exit_code)
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                         Objects                          ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
 def get_projects() -> list[Project]:
@@ -251,17 +324,20 @@ def get_active_tasks() -> list[Task]:
     ]
 
 
+custom_sort_tasks = compose2(
+    partial(enumerate, start=1),
+    partial(sorted, key=lambda t: t.created_at, reverse=True),
+)
+
+
 def add_task(task: Task) -> None:
-    # $ curl "https://api.todoist.com/rest/v2/tasks" \
-    #     --data '{"content": "Buy Milk", "due_string": "tomorrow at 12:00", "due_lang": "en", "priority": 4}' \
     task_dict = {k: v for k, v in asdict(task).items() if v}
     due_dict = (
         {'due_' + k: v for k, v in task_dict.pop('due').items() if v}
         if task_dict.get('due')
         else {}
     )
-    print(json.dumps(task_dict | due_dict))
-    upload_object(
+    update_objects(
         "https://api.todoist.com/rest/v2/tasks",
         task_dict | due_dict,
         TODO_STATE.tasks,
@@ -269,25 +345,57 @@ def add_task(task: Task) -> None:
     )
 
 
+def delete_task(task: Task) -> None:
+    update_object(
+        f"https://api.todoist.com/rest/v2/tasks/{task.id}",
+        None,
+        TODO_STATE.tasks,
+        ExitCode.TASK_NOT_FOUND,
+        'DELETE',
+    )
+
+
 def display_projects() -> None:
     for p in get_projects():
-        print(f'- {p.name}')
+        print(p)
 
 
-def display_active_tasks() -> None:
-    for t in get_active_tasks():
-        print(f'- {t.content}')
+def display_tasks() -> None:
+    for i, t in custom_sort_tasks(get_active_tasks()):
+        print(f'{i:>4}. {t}')
 
 
-def get_controller(args: argparse.Namespace) -> None:
-    if args.projects:
-        display_projects()
-    elif args.active_tasks:
-        display_active_tasks()
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                       Controllers                        ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+def get_project_controller(args: argparse.Namespace) -> None:
+    display_projects()
+
+
+def get_task_controller(args: argparse.Namespace) -> None:
+    url = 'https://api.todoist.com/rest/v2/tasks'
+    params = {}
+    if args.filter:
+        params['filter'] = args.filter
+    if args.label:
+        params['label'] = args.label
+    if args.project:
+        params['project_id'] = [p.id for p in get_projects() if p.name == args.project][
+            0
+        ]
+    if params:
+        download_objects(
+            create_url(url, params),
+            TODO_STATE.tasks,
+            ExitCode.TASK_NOT_FOUND,
+        )
+    display_tasks()
 
 
 def add_task_controller(args: argparse.Namespace) -> None:
-    # validate section
+    # TODO: validate section
     due_field = args.due_string or args.due_date or args.due_datetime
     add_task(
         Task(
@@ -307,12 +415,26 @@ def add_task_controller(args: argparse.Namespace) -> None:
     )
 
 
+def delete_task_controller(args: argparse.Namespace) -> None:
+    tasks = get_active_tasks()
+    tasks_to_delete = [t for i, t in custom_sort_tasks(tasks) if i == args.index]
+    if not tasks_to_delete:
+        bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
+    delete_task(tasks_to_delete[0])
+
+
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                  Command Line Options                    ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # valid values
+    valid_projects = [p.name for p in get_projects()]
+    valid_labels = [l.value for l in Label]
+    valid_priorities = [p.value for p in Priority]
+    tasks_length = len(get_active_tasks())
+
     parser = argparse.ArgumentParser(
         description='A client to interact with Todoist', epilog='Happy todoing'
     )
@@ -320,14 +442,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # -- get sub-command
     get_parser = subparser.add_parser('get', help='Get a Todoist object')
-    get_group_parser = get_parser.add_mutually_exclusive_group(required=True)
-    get_group_parser.add_argument(
-        '-p', '--projects', action='store_true', help='Get all projects'
+    get_obj_parser = get_parser.add_subparsers(required=True)
+    # -- get project sub-command
+    get_project_parser = get_obj_parser.add_parser('project', help='Get a project')
+    get_project_parser.add_argument(
+        '-a', '--all', action='store_true', help='Get all projects'
     )
-    get_group_parser.add_argument(
-        '-a', '--active-tasks', action='store_true', help='Get all active tasks'
+    get_project_parser.set_defaults(func=get_project_controller)
+
+    # -- get task sub-command
+    get_task_parser = get_obj_parser.add_parser('task', help='Get a task')
+    get_task_parser.add_argument(
+        '-f', '--filter', help='Filter task by an supported filter'
     )
-    get_parser.set_defaults(func=get_controller)
+    get_task_parser.add_argument(
+        '-l', '--label', help='Filter task by label', choices=valid_labels
+    )
+    get_task_parser.add_argument(
+        '-p', '--project', help='Filter task by project', choices=valid_projects
+    )
+    get_task_parser.set_defaults(func=get_task_controller)
 
     # -- add sub-command
     add_parser = subparser.add_parser('add', help='Add a Todoist object')
@@ -345,7 +479,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         '--project',
         help='Add task to the project',
         default='Inbox',
-        choices=[p.name for p in get_projects()],
+        choices=valid_projects,
     )
     add_task_parser.add_argument(
         '-s',
@@ -359,7 +493,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Label,
         help='Add task with label',
         default=[],
-        choices=[l.value for l in Label],
+        choices=valid_labels,
     )
     add_task_parser.add_argument(
         '-p',
@@ -367,7 +501,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Priority,
         help='Add task with priority',
         default=Priority.P4,
-        choices=[p.value for p in Priority],
+        choices=valid_priorities,
     )
     add_task_parser.add_argument(
         '-d',
@@ -385,6 +519,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         help='Task due by datetime',
     )
     add_task_parser.set_defaults(func=add_task_controller)
+
+    # -- delete sub-command
+    delete_parser = subparser.add_parser('delete', help='Delete a Todoist object')
+    delete_obj_parser = delete_parser.add_subparsers(required=True)
+
+    delete_task_parser = delete_obj_parser.add_parser('task', help='Delete a task')
+    delete_task_parser.add_argument(
+        'index',
+        type=int,
+        help=f'Delete task by index in the range 1..{tasks_length}',
+    )
+    delete_task_parser.set_defaults(func=delete_task_controller)
 
     args = parser.parse_args(argv)
     args.func(args)
