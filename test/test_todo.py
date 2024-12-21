@@ -48,7 +48,7 @@ def test_get_active_tasks():
         tasks = json.load(f)
         assert tasks
 
-def test_add_and_delete_task():
+def test_add_task():
     # -- Add
     # Arrange
     content = 'Buy Milk'
@@ -68,5 +68,41 @@ def test_add_and_delete_task():
     # Act
     todo.main(cmd)
     assert all(t.content != content for t in todo.get_active_tasks())
+
+
+def test_update_task():
+    # -- Add
+    # Arrange
+    og_content = 'Buy Milk'
+    cmd = ['add', 'task', '-c',og_content]
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    assert any(t.content == og_content for t in todo.get_active_tasks())
+
+    # -- update
+    # Arrange
+    up_content = 'Buy Chocolate'
+    cmd = ['update', 'task', '1', '-c', up_content]
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    assert all(t.content != og_content for t in todo.get_active_tasks())
+    assert any(t.content == up_content for t in todo.get_active_tasks())
+
+    # -- Delete
+    # Arrange
+    index = 1
+    cmd = ['delete', 'task', f'{index}']
+
+    # Act
+    todo.main(cmd)
+
+    # Asset
+    assert all(t.content != up_content for t in todo.get_active_tasks())
 
 

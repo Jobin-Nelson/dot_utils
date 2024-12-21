@@ -351,7 +351,9 @@ def update_task(task: Task) -> None:
         ExitCode.TASK_NOT_FOUND,
     )
 
+
 update_task_from_dict = compose2(update_task, dict2Task)
+
 
 def delete_task(task: Task) -> None:
     update_object(
@@ -405,7 +407,9 @@ def get_task_controller(args: argparse.Namespace) -> None:
 def add_task_controller(args: argparse.Namespace) -> None:
     # TODO: validate section
     task_fields = vars(args)
-    task_fields['project_id'] = [p.id for p in get_projects() if p.name == args.project][0]
+    task_fields['project_id'] = [
+        p.id for p in get_projects() if p.name == args.project
+    ][0]
     update_task_from_dict(task_fields)
 
 
@@ -423,25 +427,9 @@ def update_task_controller(args: argparse.Namespace) -> None:
     if not tasks_to_update:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
 
-    task = tasks_to_update[0]
-    task.content = args.content if args.content else task.content
-    task.description = args.description if args.description else task.description
-    task.labels = args.labels if args.labels else task.labels
-    task.priority = args.priority if args.priority else task.priority
-    task.description = args.description if args.description else task.description
-
-    due_field = args.due_string or args.due_date or args.due_datetime
-    org_due = task.due
-    task.due = due_field and Due(
-        string=due_field
-        if args.due_string
-        else (org_due and due_field.strftim('%d %b')),
-        date=args.due_date if args.due_date else (org_due and org_due.due_date),
-        datetime=args.due_datetime
-        if args.due_datetime
-        else (org_due and org_due.datetime),
+    update_task_from_dict(
+        asdict(tasks_to_update[0]) | {k: v for k, v in vars(args).items() if v}
     )
-    update_task(task)
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
