@@ -543,7 +543,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     add_task_parser.add_argument(
         '-p',
         '--priority',
-        type=Priority,
+        type=int,
         help='Add task with priority',
         default=Priority.P4,
         choices=valid_priorities,
@@ -609,7 +609,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     update_task_parser.add_argument(
         '-p',
         '--priority',
-        type=Priority,
+        type=int,
         help='Update task Priority',
     )
     update_task_date_group = update_task_parser.add_mutually_exclusive_group()
