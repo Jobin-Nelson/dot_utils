@@ -365,6 +365,16 @@ def delete_task(task: Task) -> None:
     )
 
 
+def close_task(task: Task) -> None:
+    print(f"{BASE_URL}/tasks/{task.id}/close")
+    update_object(
+        f"{BASE_URL}/tasks/{task.id}/close",
+        None,
+        TODO_STATE.tasks,
+        ExitCode.TASK_NOT_FOUND,
+    )
+
+
 def display_projects() -> None:
     for p in get_projects():
         print(p)
@@ -423,13 +433,26 @@ def delete_task_controller(args: argparse.Namespace) -> None:
 
 def update_task_controller(args: argparse.Namespace) -> None:
     tasks = get_active_tasks()
-    tasks_to_update = [t for i, t in custom_sort_tasks(tasks) if i == args.index]
+    tasks_to_update: list[Task] = [
+        t for i, t in custom_sort_tasks(tasks) if i == args.index
+    ]
     if not tasks_to_update:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
 
     update_task_from_dict(
         asdict(tasks_to_update[0]) | {k: v for k, v in vars(args).items() if v}
     )
+
+
+def close_task_controller(args: argparse.Namespace) -> None:
+    tasks = get_active_tasks()
+    tasks_to_close: list[Task] = [
+        t for i, t in custom_sort_tasks(tasks) if i == args.index
+    ]
+    if not tasks_to_close:
+        bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
+
+    close_task(tasks_to_close[0])
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -556,11 +579,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     update_task_parser.add_argument(
         '-c',
         '--content',
-        help=f'Update task content',
+        help='Update task content',
     )
     update_task_parser.add_argument(
         '--description',
-        help=f'Update task description',
+        help='Update task description',
     )
     update_task_parser.add_argument(
         '-l',
@@ -568,31 +591,43 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Label,
         action='append',
         default=[],
-        help=f'Update task labels',
+        help='Update task labels',
     )
     update_task_parser.add_argument(
         '-p',
         '--priority',
         type=Priority,
-        help=f'Update task Priority',
+        help='Update task Priority',
     )
     update_task_date_group = update_task_parser.add_mutually_exclusive_group()
     update_task_date_group.add_argument(
         '-d',
         '--due-string',
-        help=f'Update task due',
+        help='Update task due',
     )
     update_task_date_group.add_argument(
         '--due-date',
         type=date.fromisoformat,
-        help=f'Update task due date',
+        help='Update task due date',
     )
     update_task_date_group.add_argument(
         '--due-datetime',
         type=datetime.fromisoformat,
-        help=f'Update task due datetime',
+        help='Update task due datetime',
     )
     update_task_parser.set_defaults(func=update_task_controller)
+
+    # -- close sub-command
+    close_parser = subparser.add_parser('close', help='Close a Todoist object')
+    close_obj_parser = close_parser.add_subparsers(required=True)
+
+    close_task_parser = close_obj_parser.add_parser('task', help='Close a task')
+    close_task_parser.add_argument(
+        'index',
+        type=int,
+        help=f'close task by index in the range 1..{tasks_length}',
+    )
+    close_task_parser.set_defaults(func=close_task_controller)
 
     args = parser.parse_args(argv)
     args.func(args)

@@ -106,3 +106,25 @@ def test_update_task():
     assert all(t.content != up_content for t in todo.get_active_tasks())
 
 
+def test_update_task():
+    # -- Add
+    # Arrange
+    og_content = 'Buy Milk'
+    cmd = ['add', 'task', '-c',og_content]
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    assert any(t.content == og_content for t in todo.get_active_tasks())
+
+    # -- Close
+    # Arrange
+    index = 1
+    cmd = ['close', 'task', f'{index}']
+
+    # Act
+    todo.main(cmd)
+
+    # Asset
+    assert all(t.content != og_content for t in todo.get_active_tasks())
