@@ -454,6 +454,19 @@ def close_task_controller(args: argparse.Namespace) -> None:
 
     close_task(tasks_to_close[0])
 
+def list_controller(args: argparse.Namespace) -> None:
+    if args.project:
+        for p in get_projects():
+            print(p.name)
+    elif args.labels:
+        for l in Label:
+            print(l.value)
+    elif args.priority:
+        for l in Priority:
+            print(l.value)
+    elif args.task:
+        for t in get_active_tasks():
+            print(t.content)
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                  Command Line Options                    ┃
@@ -628,6 +641,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=f'close task by index in the range 1..{tasks_length}',
     )
     close_task_parser.set_defaults(func=close_task_controller)
+
+    # -- list sub-command
+    list_parser = subparser.add_parser('list', help='list a Todoist object')
+    list_group_parser = list_parser.add_mutually_exclusive_group(required=True)
+    list_group_parser.add_argument('-p', '--project', action='store_true', help='List projects')
+    list_group_parser.add_argument('-t', '--task', action='store_true', help='List tasks')
+    list_group_parser.add_argument('-l', '--labels', action='store_true', help='List labels')
+    list_group_parser.add_argument('--priority', action='store_true', help='List priority')
+    list_group_parser.set_defaults(func=list_controller)
 
     args = parser.parse_args(argv)
     args.func(args)
