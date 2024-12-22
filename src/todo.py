@@ -404,7 +404,7 @@ TODO_STATE = TodoState(
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-def get_project_controller(args: argparse.Namespace) -> None:
+def get_project_controller(_: argparse.Namespace) -> None:
     display_projects()
 
 

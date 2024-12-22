@@ -8,7 +8,7 @@ from src.utils.fn import compose
 
 def test_get_projects(capsys: pytest.CaptureFixture):
     # Arrange
-    todo.TODO_STATE.projects.unlink(missing_ok=True)
+    todo.TODO_STATE_PATH.projects.unlink(missing_ok=True)
 
     # Act
     todo.main('get project'.split())
@@ -32,19 +32,19 @@ def test_get_projects(capsys: pytest.CaptureFixture):
     )
 
     assert sorted([s for s in to_projects(stdout) if s]) == expected_projects
-    with open(todo.TODO_STATE.projects) as f:
+    with open(todo.TODO_STATE_PATH.projects) as f:
         projects = json.load(f)
         assert sorted([p['name'] for p in projects]) == expected_projects
 
 def test_get_active_tasks():
     # Arrange
-    todo.TODO_STATE.tasks.unlink(missing_ok=True)
+    todo.TODO_STATE_PATH.tasks.unlink(missing_ok=True)
 
     # Act
     todo.main('get task'.split())
 
     # Assert
-    with open(todo.TODO_STATE.tasks) as f:
+    with open(todo.TODO_STATE_PATH.tasks) as f:
         tasks = json.load(f)
         assert tasks
 
@@ -106,7 +106,7 @@ def test_update_task():
     assert all(t.content != up_content for t in todo.get_active_tasks())
 
 
-def test_update_task():
+def test_close_task():
     # -- Add
     # Arrange
     og_content = 'Buy Milk'
