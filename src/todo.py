@@ -40,6 +40,7 @@ from typing import NamedTuple, NoReturn, Sequence, Optional, TypeVar, Callable
 class Creds:
     token: str
 
+
 @dataclass(kw_only=True)
 class Due:
     string: str
@@ -112,7 +113,10 @@ class Task:
         )
 
     def __str__(self) -> str:
-        parent_task = self.parent_id and [t for t in TODO_STATE.tasks if t.id == self.parent_id][0]
+        parent_task = (
+            self.parent_id
+            and [t for t in TODO_STATE.tasks if t.id == self.parent_id][0]
+        )
         return (
             f'{parent_task and f'   {parent_task.content} ' or ''}'
             f'{self.is_completed and '  ' or '  '} {self.content}'
@@ -127,10 +131,12 @@ class TodoStatePath(NamedTuple):
     projects: Path
     tasks: Path
 
+
 class TodoState(NamedTuple):
     creds: Creds
     projects: list[Project]
     tasks: list[Task]
+
 
 class XdgDirs(StrEnum):
     DATA = 'XDG_DATA_HOME'
@@ -392,11 +398,8 @@ def display_tasks() -> None:
     for i, t in custom_sort_tasks(get_active_tasks()):
         print(f'{i:>4}. {t}')
 
-TODO_STATE = TodoState(
-    get_creds(),
-    get_projects(),
-    get_active_tasks()
-)
+
+TODO_STATE = TodoState(get_creds(), get_projects(), get_active_tasks())
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -434,6 +437,11 @@ def add_task_controller(args: argparse.Namespace) -> None:
     task_fields['project_id'] = [
         p.id for p in get_projects() if p.name == args.project
     ][0]
+
+    if args.parent:
+        task_fields['parent_id'] = [
+            t.id for i, t in custom_sort_tasks(get_active_tasks()) if i == args.parent
+        ][0]
     update_task_from_dict(task_fields)
 
 
@@ -461,14 +469,13 @@ def update_task_controller(args: argparse.Namespace) -> None:
 
 def close_task_controller(args: argparse.Namespace) -> None:
     tasks = get_active_tasks()
-    tasks_to_close = [
-        t for i, t in custom_sort_tasks(tasks) if i in args.index
-    ]
+    tasks_to_close = [t for i, t in custom_sort_tasks(tasks) if i in args.index]
     if not tasks_to_close:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
 
     for task in tasks_to_close:
         close_task(task)
+
 
 def list_controller(args: argparse.Namespace) -> None:
     if args.project:
@@ -483,6 +490,7 @@ def list_controller(args: argparse.Namespace) -> None:
     elif args.task:
         for t in get_active_tasks():
             print(t.content)
+
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                  Command Line Options                    ┃
@@ -563,6 +571,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help='Add task with priority',
         default=Priority.P4,
         choices=valid_priorities,
+    )
+    add_task_parser.add_argument(
+        '--parent',
+        type=int,
+        help='Add task as a subtask of',
     )
     add_task_date_group = add_task_parser.add_mutually_exclusive_group()
     add_task_date_group.add_argument(
@@ -663,10 +676,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     # -- list sub-command
     list_parser = subparser.add_parser('list', help='list a Todoist object')
     list_group_parser = list_parser.add_mutually_exclusive_group(required=True)
-    list_group_parser.add_argument('-p', '--project', action='store_true', help='List projects')
-    list_group_parser.add_argument('-t', '--task', action='store_true', help='List tasks')
-    list_group_parser.add_argument('-l', '--labels', action='store_true', help='List labels')
-    list_group_parser.add_argument('--priority', action='store_true', help='List priority')
+    list_group_parser.add_argument(
+        '-p', '--project', action='store_true', help='List projects'
+    )
+    list_group_parser.add_argument(
+        '-t', '--task', action='store_true', help='List tasks'
+    )
+    list_group_parser.add_argument(
+        '-l', '--labels', action='store_true', help='List labels'
+    )
+    list_group_parser.add_argument(
+        '--priority', action='store_true', help='List priority'
+    )
     list_group_parser.set_defaults(func=list_controller)
 
     args = parser.parse_args(argv)

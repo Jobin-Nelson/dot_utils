@@ -128,3 +128,28 @@ def test_close_task():
 
     # Asset
     assert all(t.content != og_content for t in todo.get_active_tasks())
+
+def test_add_task_with_parent():
+    # -- Add
+    # Arrange
+    og_content = 'Buy Milk'
+    cmd = ['add', 'task', '-c',og_content]
+    todo.main(cmd)
+    next_content = 'Buy Chocolate'
+    cmd = ['add', 'task', '-c', next_content, '--parent', '1']
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    og_task = [t for t in todo.get_active_tasks() if t.content == og_content ][0]
+    next_task = [t for t in todo.get_active_tasks() if t.content == next_content ][0]
+    assert next_task.parent_id == og_task.id
+
+    # -- cleanup
+    # Arrange
+    cmd = ['delete', 'task', '1', '2']
+
+    # Act
+    todo.main(cmd)
+
