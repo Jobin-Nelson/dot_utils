@@ -57,6 +57,7 @@ class Due:
             if isinstance(self.datetime, str)
             else self.datetime
         )
+
     def __str__(self) -> str:
         return (
             f'{self.date and f'  {self.date}' or ''}'
@@ -121,16 +122,19 @@ class Task:
         )
 
     def __str__(self) -> str:
-        parent_task = (
-            self.parent_id
-            and [t for t in TODO_STATE.tasks if t.id == self.parent_id][0]
+        parent_task = self.parent_id and next(
+            t for t in TODO_STATE.tasks if t.id == self.parent_id
+        )
+        project_name = next(
+            p.name for p in TODO_STATE.projects if p.id == self.project_id
         )
         return (
             f'{parent_task and f'   {parent_task.content} ' or ''}'
             f'{self.is_completed and '  ' or '  '} {self.content} '
             f'{self.labels and f' {' '.join(' '+l for l in self.labels)}' or ''}'
             f'{self.due and f'{self.due}' or ''}'
-            f'{self.priority and f'  {self.priority.name}' or ''}'
+            f'{self.priority != Priority.P4 and f'  {self.priority.name}' or ''}'
+            f'{project_name != 'Inbox' and f'  {project_name}' or ''}'
         )
 
 
@@ -496,14 +500,14 @@ def get_task_controller(args: argparse.Namespace) -> None:
 def add_task_controller(args: argparse.Namespace) -> None:
     # TODO: validate section
     task_fields = vars(args)
-    task_fields['project_id'] = [
+    task_fields['project_id'] = next(
         p.id for p in get_projects() if p.name == args.project
-    ][0]
+    )
 
     if args.parent:
-        task_fields['parent_id'] = [
+        task_fields['parent_id'] = next(
             t.id for i, t in custom_sort_tasks(get_active_tasks()) if i == args.parent
-        ][0]
+        )
     update_task_from_dict(task_fields)
 
 
@@ -535,9 +539,7 @@ def update_task_controller(args: argparse.Namespace) -> None:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
 
     for task in tasks_to_update:
-        update_task_from_dict(
-            asdict(task) | {k: v for k, v in vars(args).items() if v}
-        )
+        update_task_from_dict(asdict(task) | {k: v for k, v in vars(args).items() if v})
 
 
 def close_task_controller(args: argparse.Namespace) -> None:

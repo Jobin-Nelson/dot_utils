@@ -20,9 +20,9 @@ def test_get_projects(capsys: pytest.CaptureFixture):
         [
             "Inbox",
             "Work",
-            "Habits",
-            "Someday",
-            "Shopping list",
+            "Learn",
+            "Personal",
+            "Book",
             "Projects",
         ]
     )
