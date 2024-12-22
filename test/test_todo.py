@@ -3,6 +3,7 @@ import pytest
 from functools import partial
 from operator import methodcaller
 from src import todo
+from datetime import date
 from src.utils.fn import compose
 
 
@@ -36,6 +37,7 @@ def test_get_projects(capsys: pytest.CaptureFixture):
         projects = json.load(f)
         assert sorted([p['name'] for p in projects]) == expected_projects
 
+
 def test_get_active_tasks():
     # Arrange
     todo.TODO_STATE_PATH.tasks.unlink(missing_ok=True)
@@ -48,11 +50,12 @@ def test_get_active_tasks():
         tasks = json.load(f)
         assert tasks
 
+
 def test_add_task():
     # -- Add
     # Arrange
     content = 'Buy Milk'
-    cmd = ['add', 'task', '-c',content]
+    cmd = ['add', 'task', '-c', content]
 
     # Act
     todo.main(cmd)
@@ -70,29 +73,82 @@ def test_add_task():
     assert all(t.content != content for t in todo.get_active_tasks())
 
 
-def test_update_task():
+def test_update_multiple_task():
     # -- Add
     # Arrange
-    og_content = 'Buy Milk'
-    cmd = ['add', 'task', '-c',og_content]
+    og_contents = [('Buy Milk', date(2025, 1, 1))]
+    for og_content, og_date in og_contents:
+        cmd = ['add', 'task', '-c', og_content, '--due-date', og_date.strftime('%F')]
+
+        # Act
+        todo.main(cmd)
+
+        # Assert
+        t = [t for t in todo.get_active_tasks() if t.content == og_content]
+        assert t[0].due.date == og_date.strftime('%F')
+
+    # -- update
+    # Arrange
+    up_date = date(2026, 2, 2)
+    cmd = [
+        'update',
+        'task',
+        *list(map(str, range(1,len(og_contents)+1))),
+        '--due-date',
+        up_date.strftime('%F'),
+    ]
 
     # Act
     todo.main(cmd)
 
     # Assert
-    assert any(t.content == og_content for t in todo.get_active_tasks())
+    tasks = [t for t in todo.get_active_tasks() if t.content in [o[0] for o in og_contents]]
+    for t in tasks:
+        assert t.due.date == up_date.strftime('%F')
+
+    # -- Delete
+    # Arrange
+    indices = list(range(1, len(og_contents)+1))
+    cmd = ['delete', 'task' ] + list(map(str,indices))
+
+    # Act
+    todo.main(cmd)
+
+def test_update_task():
+    # -- Add
+    # Arrange
+    og_content = 'Buy Milk'
+    og_date = date(2025, 1, 1)
+    cmd = ['add', 'task', '-c', og_content, '--due-date', og_date.strftime('%F')]
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    t = [t for t in todo.get_active_tasks() if t.content == og_content]
+    assert t[0].due.date == og_date.strftime('%F')
 
     # -- update
     # Arrange
     up_content = 'Buy Chocolate'
-    cmd = ['update', 'task', '1', '-c', up_content]
+    up_date = date(2026, 2, 2)
+    cmd = [
+        'update',
+        'task',
+        '1',
+        '-c',
+        up_content,
+        '--due-date',
+        up_date.strftime('%F'),
+    ]
 
     # Act
     todo.main(cmd)
 
     # Assert
     assert all(t.content != og_content for t in todo.get_active_tasks())
-    assert any(t.content == up_content for t in todo.get_active_tasks())
+    t = [t for t in todo.get_active_tasks() if t.content == up_content]
+    assert t[0].due.date == up_date.strftime('%F')
 
     # -- Delete
     # Arrange
@@ -110,7 +166,7 @@ def test_close_task():
     # -- Add
     # Arrange
     og_content = 'Buy Milk'
-    cmd = ['add', 'task', '-c',og_content]
+    cmd = ['add', 'task', '-c', og_content]
 
     # Act
     todo.main(cmd)
@@ -129,11 +185,12 @@ def test_close_task():
     # Asset
     assert all(t.content != og_content for t in todo.get_active_tasks())
 
+
 def test_add_task_with_parent():
     # -- Add
     # Arrange
     og_content = 'Buy Milk'
-    cmd = ['add', 'task', '-c',og_content]
+    cmd = ['add', 'task', '-c', og_content]
     todo.main(cmd)
     next_content = 'Buy Chocolate'
     cmd = ['add', 'task', '-c', next_content, '--parent', '1']
@@ -142,8 +199,8 @@ def test_add_task_with_parent():
     todo.main(cmd)
 
     # Assert
-    og_task = [t for t in todo.get_active_tasks() if t.content == og_content ][0]
-    next_task = [t for t in todo.get_active_tasks() if t.content == next_content ][0]
+    og_task = [t for t in todo.get_active_tasks() if t.content == og_content][0]
+    next_task = [t for t in todo.get_active_tasks() if t.content == next_content][0]
     assert next_task.parent_id == og_task.id
 
     # -- cleanup
@@ -153,11 +210,12 @@ def test_add_task_with_parent():
     # Act
     todo.main(cmd)
 
+
 def test_add_delete_label():
     # -- Add
     # Arrange
     new_label = 'test-label'
-    cmd = ['add', 'label', '-n',new_label]
+    cmd = ['add', 'label', '-n', new_label]
 
     # Act
     todo.main(cmd)

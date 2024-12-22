@@ -43,7 +43,7 @@ class Creds:
 
 @dataclass(kw_only=True)
 class Due:
-    string: str
+    string: Optional[str] = None
     date: Optional[date] = None
     is_recurring: bool = False
     datetime: Optional[datetime] = None
@@ -529,14 +529,15 @@ def delete_label_controller(args: argparse.Namespace) -> None:
 def update_task_controller(args: argparse.Namespace) -> None:
     tasks = get_active_tasks()
     tasks_to_update: list[Task] = [
-        t for i, t in custom_sort_tasks(tasks) if i == args.index
+        t for i, t in custom_sort_tasks(tasks) if i in args.index
     ]
     if not tasks_to_update:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
 
-    update_task_from_dict(
-        asdict(tasks_to_update[0]) | {k: v for k, v in vars(args).items() if v}
-    )
+    for task in tasks_to_update:
+        update_task_from_dict(
+            asdict(task) | {k: v for k, v in vars(args).items() if v}
+        )
 
 
 def close_task_controller(args: argparse.Namespace) -> None:
@@ -710,6 +711,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         'index',
         type=int,
         help=f'Update task by index in the range 1..{tasks_length}',
+        nargs='+',
     )
 
     update_task_parser.add_argument(
