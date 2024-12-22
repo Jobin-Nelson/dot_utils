@@ -37,6 +37,10 @@ from typing import NamedTuple, NoReturn, Sequence, Optional, TypeVar, Callable
 
 
 @dataclass(kw_only=True)
+class Creds:
+    token: str
+
+@dataclass(kw_only=True)
 class Due:
     string: str
     date: Optional[date] = None
@@ -108,19 +112,25 @@ class Task:
         )
 
     def __str__(self) -> str:
+        parent_task = self.parent_id and [t for t in TODO_STATE.tasks if t.id == self.parent_id][0]
         return (
-            f' {self.is_completed and ' ' or ' '} {self.content}'
-            f'{self.due and f'  [  {self.due.string}]' or ''}'
-            f'{self.labels and f'  [ {','.join(self.labels)}]' or ''}'
-            f'{self.priority and f'  [ {self.priority.name}]' or ''}'
+            f'{parent_task and f'   {parent_task.content} ' or ''}'
+            f'{self.is_completed and '  ' or '  '} {self.content}'
+            f'{self.due and f'    {self.due.string}' or ''}'
+            f'{self.labels and f'   {','.join(self.labels)}' or ''}'
+            f'{self.priority and f'   {self.priority.name}' or ''}'
         )
 
 
-class TodoState(NamedTuple):
+class TodoStatePath(NamedTuple):
     creds: Path
     projects: Path
     tasks: Path
 
+class TodoState(NamedTuple):
+    creds: Creds
+    projects: list[Project]
+    tasks: list[Task]
 
 class XdgDirs(StrEnum):
     DATA = 'XDG_DATA_HOME'
@@ -187,22 +197,21 @@ TASK_FIELDS = [f.name for f in fields(Task)]
 PROJECT_FIELDS = [f.name for f in fields(Project)]
 DUE_FIELDS = [f.name for f in fields(Due)]
 
-TODO_STATE = TodoState(
+TODO_STATE_PATH = TodoStatePath(
     get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
     get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
     get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
 )
-
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                   Core Implementation                    ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-def get_token() -> str:
+def get_creds() -> Creds:
     try:
-        with open(TODO_STATE.creds) as f:
-            return json.load(f)['token']
+        with open(TODO_STATE_PATH.creds) as f:
+            return Creds(**json.load(f))
     except Exception as e:
         bail(f'ERROR: Todoist Creds not found, REASON: {e}', ExitCode.CREDS_NOT_FOUND)
 
@@ -216,7 +225,7 @@ def request(
     default_headers = {
         'Content-Type': 'application/json',
         'X-Request-Id': f'{uuid.uuid4()}',
-        'Authorization': f'Bearer {get_token()}',
+        'Authorization': f'Bearer {TODO_STATE.creds.token}',
     }
     req = urllib.request.Request(
         url,
@@ -320,7 +329,7 @@ def get_projects() -> list[Project]:
         dict2Project(p)
         for p in get_object(
             f'{BASE_URL}/projects',
-            TODO_STATE.projects,
+            TODO_STATE_PATH.projects,
             ExitCode.PROJECT_NOT_FOUND,
         )
     ]
@@ -331,7 +340,7 @@ def get_active_tasks() -> list[Task]:
         dict2Task(t)
         for t in get_object(
             f'{BASE_URL}/tasks',
-            TODO_STATE.tasks,
+            TODO_STATE_PATH.tasks,
             ExitCode.TASK_NOT_FOUND,
         )
     ]
@@ -347,7 +356,7 @@ def update_task(task: Task) -> None:
     update_object(
         f"{BASE_URL}/tasks/{task.id}" if task.id else f"{BASE_URL}/tasks",
         task2Dict(task),
-        TODO_STATE.tasks,
+        TODO_STATE_PATH.tasks,
         ExitCode.TASK_NOT_FOUND,
     )
 
@@ -359,18 +368,17 @@ def delete_task(task: Task) -> None:
     update_object(
         f"{BASE_URL}/tasks/{task.id}",
         None,
-        TODO_STATE.tasks,
+        TODO_STATE_PATH.tasks,
         ExitCode.TASK_NOT_FOUND,
         'DELETE',
     )
 
 
 def close_task(task: Task) -> None:
-    print(f"{BASE_URL}/tasks/{task.id}/close")
     update_object(
         f"{BASE_URL}/tasks/{task.id}/close",
         None,
-        TODO_STATE.tasks,
+        TODO_STATE_PATH.tasks,
         ExitCode.TASK_NOT_FOUND,
     )
 
@@ -383,6 +391,12 @@ def display_projects() -> None:
 def display_tasks() -> None:
     for i, t in custom_sort_tasks(get_active_tasks()):
         print(f'{i:>4}. {t}')
+
+TODO_STATE = TodoState(
+    get_creds(),
+    get_projects(),
+    get_active_tasks()
+)
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -408,7 +422,7 @@ def get_task_controller(args: argparse.Namespace) -> None:
     if params:
         download_objects(
             create_url(url, params),
-            TODO_STATE.tasks,
+            TODO_STATE_PATH.tasks,
             ExitCode.TASK_NOT_FOUND,
         )
     display_tasks()
@@ -425,10 +439,11 @@ def add_task_controller(args: argparse.Namespace) -> None:
 
 def delete_task_controller(args: argparse.Namespace) -> None:
     tasks = get_active_tasks()
-    tasks_to_delete = [t for i, t in custom_sort_tasks(tasks) if i == args.index]
+    tasks_to_delete = [t for i, t in custom_sort_tasks(tasks) if i in args.index]
     if not tasks_to_delete:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
-    delete_task(tasks_to_delete[0])
+    for task in tasks_to_delete:
+        delete_task(task)
 
 
 def update_task_controller(args: argparse.Namespace) -> None:
@@ -446,13 +461,14 @@ def update_task_controller(args: argparse.Namespace) -> None:
 
 def close_task_controller(args: argparse.Namespace) -> None:
     tasks = get_active_tasks()
-    tasks_to_close: list[Task] = [
-        t for i, t in custom_sort_tasks(tasks) if i == args.index
+    tasks_to_close = [
+        t for i, t in custom_sort_tasks(tasks) if i in args.index
     ]
     if not tasks_to_close:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
 
-    close_task(tasks_to_close[0])
+    for task in tasks_to_close:
+        close_task(task)
 
 def list_controller(args: argparse.Namespace) -> None:
     if args.project:
@@ -575,6 +591,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         'index',
         type=int,
         help=f'Delete task by index in the range 1..{tasks_length}',
+        nargs='+',
     )
     delete_task_parser.set_defaults(func=delete_task_controller)
 
@@ -639,6 +656,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         'index',
         type=int,
         help=f'close task by index in the range 1..{tasks_length}',
+        nargs='+',
     )
     close_task_parser.set_defaults(func=close_task_controller)
 
