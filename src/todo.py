@@ -66,12 +66,15 @@ class Priority(IntEnum):
     P4 = 1
 
 
-class Label(StrEnum):
-    CHORE = 'chore'
-    WORK = 'work'
-    AUTO = 'automation'
-    MOVIE = 'movie'
-    LEARN = 'learn'
+@dataclass(kw_only=True)
+class Label:
+    id: Optional[int] = None
+    name: str
+    color: str = 'charcoal'
+    is_favorite: bool = False
+
+    def __str__(self) -> str:
+        return f'- {self.name}'
 
 
 @dataclass(frozen=True)
@@ -90,7 +93,7 @@ class Task:
     description: str = ''
     id: Optional[int] = None
     priority: Priority = Priority.P4
-    labels: list[Label] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
     url: Optional[str] = None
     section_id: Optional[int] = None
     parent_id: Optional[int] = None
@@ -105,7 +108,6 @@ class Task:
             else self.due
         )
         self.priority = Priority(self.priority)
-        self.labels = [Label(l) for l in self.labels]
         self.created_at = (
             datetime.fromisoformat(self.created_at)
             if isinstance(self.created_at, str)
@@ -120,8 +122,8 @@ class Task:
         return (
             f'{parent_task and f'   {parent_task.content} ' or ''}'
             f'{self.is_completed and '  ' or '  '} {self.content}'
-            f'{self.due and f'    {self.due.string}' or ''}'
-            f'{self.labels and f'   {','.join(self.labels)}' or ''}'
+            f'{self.due and f'   {self.due.string}' or ''}'
+            f'{self.labels and f'  {' '.join(' '+l for l in self.labels)}' or ''}'
             f'{self.priority and f'   {self.priority.name}' or ''}'
         )
 
@@ -129,6 +131,7 @@ class Task:
 class TodoStatePath(NamedTuple):
     creds: Path
     projects: Path
+    labels: Path
     tasks: Path
 
 
@@ -202,10 +205,12 @@ BASE_URL = "https://api.todoist.com/rest/v2"
 TASK_FIELDS = [f.name for f in fields(Task)]
 PROJECT_FIELDS = [f.name for f in fields(Project)]
 DUE_FIELDS = [f.name for f in fields(Due)]
+LABEL_FIELDS = [f.name for f in fields(Label)]
 
 TODO_STATE_PATH = TodoStatePath(
     get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
     get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
+    get_path(XdgDirs.STATE) / 'todoist' / 'labels.json',
     get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
 )
 
@@ -268,6 +273,10 @@ def dict2Project(d: dict) -> Project:
     return Project(**{f: v for f, v in d.items() if f in PROJECT_FIELDS})
 
 
+def dict2Label(d: dict) -> Label:
+    return Label(**{f: v for f, v in d.items() if f in LABEL_FIELDS and v is not None})
+
+
 def dict2Task(d: dict) -> Task:
     task_fields = {f: v for f, v in d.items() if f in TASK_FIELDS}
     task_fields['due'] = {
@@ -281,6 +290,12 @@ def task2Dict(t: Task) -> dict:
     task_dict.pop('id', None)
     due_dict = task_dict.pop('due', {}) or {}
     return task_dict | {'due_' + k: v for k, v in due_dict.items()}
+
+
+def label2Dict(l: Label) -> dict:
+    label_dict = asdict(l)
+    label_dict.pop('id', None)
+    return label_dict
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -341,6 +356,18 @@ def get_projects() -> list[Project]:
     ]
 
 
+def get_labels(refresh: bool = False) -> list[Label]:
+    return [
+        dict2Label(l)
+        for l in get_object(
+            f'{BASE_URL}/labels',
+            TODO_STATE_PATH.labels,
+            ExitCode.LABEL_NOT_FOUND,
+            refresh,
+        )
+    ]
+
+
 def get_active_tasks() -> list[Task]:
     return [
         dict2Task(t)
@@ -367,7 +394,17 @@ def update_task(task: Task) -> None:
     )
 
 
+def update_label(label: Label) -> None:
+    update_object(
+        f"{BASE_URL}/labels/{label.id}" if label.id else f"{BASE_URL}/labels",
+        label2Dict(label),
+        TODO_STATE_PATH.labels,
+        ExitCode.LABEL_NOT_FOUND,
+    )
+
+
 update_task_from_dict = compose2(update_task, dict2Task)
+update_label_from_dict = compose2(update_label, dict2Label)
 
 
 def delete_task(task: Task) -> None:
@@ -376,6 +413,16 @@ def delete_task(task: Task) -> None:
         None,
         TODO_STATE_PATH.tasks,
         ExitCode.TASK_NOT_FOUND,
+        'DELETE',
+    )
+
+
+def delete_label(label: Label) -> None:
+    update_object(
+        f"{BASE_URL}/labels/{label.id}",
+        None,
+        TODO_STATE_PATH.labels,
+        ExitCode.LABEL_NOT_FOUND,
         'DELETE',
     )
 
@@ -394,6 +441,11 @@ def display_projects() -> None:
         print(p)
 
 
+def display_labels(refresh: bool) -> None:
+    for l in get_labels(refresh):
+        print(l)
+
+
 def display_tasks() -> None:
     for i, t in custom_sort_tasks(get_active_tasks()):
         print(f'{i:>4}. {t}')
@@ -409,6 +461,10 @@ TODO_STATE = TodoState(get_creds(), get_projects(), get_active_tasks())
 
 def get_project_controller(_: argparse.Namespace) -> None:
     display_projects()
+
+
+def get_label_controller(args: argparse.Namespace) -> None:
+    display_labels(args.refresh)
 
 
 def get_task_controller(args: argparse.Namespace) -> None:
@@ -445,6 +501,10 @@ def add_task_controller(args: argparse.Namespace) -> None:
     update_task_from_dict(task_fields)
 
 
+def add_label_controller(args: argparse.Namespace) -> None:
+    update_label_from_dict(vars(args))
+
+
 def delete_task_controller(args: argparse.Namespace) -> None:
     tasks = get_active_tasks()
     tasks_to_delete = [t for i, t in custom_sort_tasks(tasks) if i in args.index]
@@ -452,6 +512,12 @@ def delete_task_controller(args: argparse.Namespace) -> None:
         bail(f'ERROR: Index not in range 1..{len(tasks)}', ExitCode.TASK_NOT_FOUND)
     for task in tasks_to_delete:
         delete_task(task)
+
+
+def delete_label_controller(args: argparse.Namespace) -> None:
+    labels_to_delete = [l for l in get_labels() if l.name in args.name]
+    for label in labels_to_delete:
+        delete_label(label)
 
 
 def update_task_controller(args: argparse.Namespace) -> None:
@@ -482,8 +548,8 @@ def list_controller(args: argparse.Namespace) -> None:
         for p in get_projects():
             print(p.name)
     elif args.labels:
-        for l in Label:
-            print(l.value)
+        for l in get_labels():
+            print(l.name)
     elif args.priority:
         for l in Priority:
             print(l.value)
@@ -500,7 +566,7 @@ def list_controller(args: argparse.Namespace) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     # valid values
     valid_projects = [p.name for p in get_projects()]
-    valid_labels = [l.value for l in Label]
+    valid_labels = [l.name for l in get_labels()]
     valid_priorities = [p.value for p in Priority]
     tasks_length = len(get_active_tasks())
 
@@ -513,14 +579,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     get_parser = subparser.add_parser('get', help='Get a Todoist object')
     get_obj_parser = get_parser.add_subparsers(required=True)
     # -- get project sub-command
-    get_project_parser = get_obj_parser.add_parser('project', help='Get a project')
-    get_project_parser.add_argument(
-        '-a', '--all', action='store_true', help='Get all projects'
-    )
+    get_project_parser = get_obj_parser.add_parser('project', help='Get project')
     get_project_parser.set_defaults(func=get_project_controller)
 
+    get_label_parser = get_obj_parser.add_parser('label', help='Get Label')
+    get_label_parser.add_argument(
+        '-r', '--refresh', action='store_true', help='Get all labels'
+    )
+    get_label_parser.set_defaults(func=get_label_controller)
+
     # -- get task sub-command
-    get_task_parser = get_obj_parser.add_parser('task', help='Get a task')
+    get_task_parser = get_obj_parser.add_parser('task', help='Get task')
     get_task_parser.add_argument(
         '-f', '--filter', help='Filter task by an supported filter'
     )
@@ -557,12 +626,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     add_task_parser.add_argument(
         '-l',
-        '--label',
+        '--labels',
         action='append',
-        type=Label,
         help='Add task with label',
         default=[],
-        choices=valid_labels,
     )
     add_task_parser.add_argument(
         '-p',
@@ -595,10 +662,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     add_task_parser.set_defaults(func=add_task_controller)
 
+    # -- add label sub-command
+    add_label_parser = add_obj_parser.add_parser('label', help='Add a label')
+    add_label_parser.add_argument('-n', '--name', help='Name of label')
+    add_label_parser.add_argument(
+        '-f', '--is-favorite', help='Favorite label', action='store_true'
+    )
+    add_label_parser.add_argument('-c', '--color', help='Color of label')
+    add_label_parser.set_defaults(func=add_label_controller)
+
     # -- delete sub-command
     delete_parser = subparser.add_parser('delete', help='Delete a Todoist object')
     delete_obj_parser = delete_parser.add_subparsers(required=True)
 
+    # -- delete task sub-command
     delete_task_parser = delete_obj_parser.add_parser('task', help='Delete a task')
     delete_task_parser.add_argument(
         'index',
@@ -607,6 +684,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         nargs='+',
     )
     delete_task_parser.set_defaults(func=delete_task_controller)
+
+    # -- delete label sub-command
+    delete_label_parser = delete_obj_parser.add_parser('label', help='Delete a label')
+    delete_label_parser.add_argument(
+        'name',
+        help=f'Delete label',
+        choices=valid_labels,
+        nargs='+',
+    )
+    delete_label_parser.set_defaults(func=delete_label_controller)
 
     # -- update sub-command
     update_parser = subparser.add_parser('update', help='Update a Todoist object')
@@ -631,7 +718,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     update_task_parser.add_argument(
         '-l',
         '--labels',
-        type=Label,
         action='append',
         default=[],
         help='Update task labels',
@@ -683,10 +769,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         '-t', '--task', action='store_true', help='List tasks'
     )
     list_group_parser.add_argument(
-        '-l', '--labels', action='store_true', help='List labels'
+        '-l', '--label', action='store_true', help='List labels'
     )
     list_group_parser.add_argument(
-        '--priority', action='store_true', help='List priority'
+        '--priority', action='store_true', help='List priorities'
     )
     list_group_parser.set_defaults(func=list_controller)
 

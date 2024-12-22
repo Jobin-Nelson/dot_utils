@@ -153,3 +153,24 @@ def test_add_task_with_parent():
     # Act
     todo.main(cmd)
 
+def test_add_delete_label():
+    # -- Add
+    # Arrange
+    new_label = 'test-label'
+    cmd = ['add', 'label', '-n',new_label]
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    assert any(l.name == new_label for l in todo.get_labels())
+
+    # -- Delete
+    # Arrange
+    cmd = ['delete', 'label', new_label]
+
+    # Act
+    todo.main(cmd)
+
+    # Assert
+    assert all(l.name != new_label for l in todo.get_labels())
