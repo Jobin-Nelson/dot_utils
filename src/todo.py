@@ -57,6 +57,12 @@ class Due:
             if isinstance(self.datetime, str)
             else self.datetime
         )
+    def __str__(self) -> str:
+        return (
+            f'{self.date and f'  {self.date}' or ''}'
+            f'{self.datetime and f'  {self.datetime.strftime('%H:%M')}' or ''}'
+            f'{self.string and f'  {self.string}' or ''}'
+        )
 
 
 class Priority(IntEnum):
@@ -121,10 +127,10 @@ class Task:
         )
         return (
             f'{parent_task and f'   {parent_task.content} ' or ''}'
-            f'{self.is_completed and '  ' or '  '} {self.content}'
-            f'{self.due and f'   {self.due.string}' or ''}'
-            f'{self.labels and f'  {' '.join(' '+l for l in self.labels)}' or ''}'
-            f'{self.priority and f'   {self.priority.name}' or ''}'
+            f'{self.is_completed and '  ' or '  '} {self.content} '
+            f'{self.labels and f' {' '.join(' '+l for l in self.labels)}' or ''}'
+            f'{self.due and f'{self.due}' or ''}'
+            f'{self.priority and f'  {self.priority.name}' or ''}'
         )
 
 
@@ -547,7 +553,7 @@ def list_controller(args: argparse.Namespace) -> None:
     if args.project:
         for p in get_projects():
             print(p.name)
-    elif args.labels:
+    elif args.label:
         for l in get_labels():
             print(l.name)
     elif args.priority:
