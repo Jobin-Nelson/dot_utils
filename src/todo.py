@@ -207,24 +207,6 @@ def create_url(url: str, params: dict) -> str:
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃                         Globals                          ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
-
-BASE_URL = "https://api.todoist.com/rest/v2"
-TASK_FIELDS = [f.name for f in fields(Task)]
-PROJECT_FIELDS = [f.name for f in fields(Project)]
-DUE_FIELDS = [f.name for f in fields(Due)]
-LABEL_FIELDS = [f.name for f in fields(Label)]
-
-TODO_STATE_PATH = TodoStatePath(
-    get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
-    get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
-    get_path(XdgDirs.STATE) / 'todoist' / 'labels.json',
-    get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
-)
-
-# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                   Core Implementation                    ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
@@ -237,6 +219,14 @@ def get_creds() -> Creds:
         bail(f'ERROR: Todoist Creds not found, REASON: {e}', ExitCode.CREDS_NOT_FOUND)
 
 
+def get_token() -> str:
+    return get_creds().token
+
+
+def get_todo_state() -> TodoState:
+    return TodoState(get_creds(), get_projects(), get_active_tasks())
+
+
 def request(
     url: str,
     data: dict | None = None,
@@ -246,7 +236,7 @@ def request(
     default_headers = {
         'Content-Type': 'application/json',
         'X-Request-Id': f'{uuid.uuid4()}',
-        'Authorization': f'Bearer {TODO_STATE.creds.token}',
+        'Authorization': f'Bearer {get_token()}',
     }
     req = urllib.request.Request(
         url,
@@ -461,7 +451,25 @@ def display_tasks() -> None:
         print(f'{i:>4}. {t}')
 
 
-TODO_STATE = TodoState(get_creds(), get_projects(), get_active_tasks())
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                         Globals                          ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+BASE_URL = "https://api.todoist.com/rest/v2"
+TASK_FIELDS = [f.name for f in fields(Task)]
+PROJECT_FIELDS = [f.name for f in fields(Project)]
+DUE_FIELDS = [f.name for f in fields(Due)]
+LABEL_FIELDS = [f.name for f in fields(Label)]
+
+TODO_STATE_PATH = TodoStatePath(
+    get_path(XdgDirs.DATA) / 'todoist' / 'creds.json',
+    get_path(XdgDirs.STATE) / 'todoist' / 'projects.json',
+    get_path(XdgDirs.STATE) / 'todoist' / 'labels.json',
+    get_path(XdgDirs.STATE) / 'todoist' / 'tasks.json',
+)
+
+TODO_STATE = get_todo_state()
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
