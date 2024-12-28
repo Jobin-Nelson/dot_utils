@@ -345,13 +345,14 @@ def update_object(
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-def get_projects() -> list[Project]:
+def get_projects(refresh: bool = False) -> list[Project]:
     return [
         dict2Project(p)
         for p in get_object(
             f'{BASE_URL}/projects',
             TODO_STATE_PATH.projects,
             ExitCode.PROJECT_NOT_FOUND,
+            refresh,
         )
     ]
 
@@ -436,8 +437,8 @@ def close_task(task: Task) -> None:
     )
 
 
-def display_projects() -> None:
-    for p in get_projects():
+def display_projects(refresh: bool) -> None:
+    for p in get_projects(refresh):
         print(p)
 
 
@@ -477,8 +478,8 @@ TODO_STATE = get_todo_state()
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-def get_project_controller(_: argparse.Namespace) -> None:
-    display_projects()
+def get_project_controller(args: argparse.Namespace) -> None:
+    display_projects(args.refresh)
 
 
 def get_label_controller(args: argparse.Namespace) -> None:
@@ -597,6 +598,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     get_obj_parser = get_parser.add_subparsers(required=True)
     # -- get project sub-command
     get_project_parser = get_obj_parser.add_parser('project', help='Get project')
+    get_project_parser.add_argument(
+        '-r', '--refresh', action='store_true', help='Get all projects'
+    )
     get_project_parser.set_defaults(func=get_project_controller)
 
     get_label_parser = get_obj_parser.add_parser('label', help='Get Label')
