@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 #
-#  _____         _
-# |_   _|__   __| | ___
-#   | |/ _ \ / _` |/ _ \
-#   | | (_) | (_| | (_) |
-#   |_|\___/ \__,_|\___/
+# ████████╗ ██████╗ ██████╗  ██████╗
+# ╚══██╔══╝██╔═══██╗██╔══██╗██╔═══██╗
+#    ██║   ██║   ██║██║  ██║██║   ██║
+#    ██║   ██║   ██║██║  ██║██║   ██║
+#    ██║   ╚██████╔╝██████╔╝╚██████╔╝
+#    ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝
 #
 
 """
@@ -60,9 +61,9 @@ class Due:
 
     def __str__(self) -> str:
         return (
-            f'{self.date and f'  {self.date}' or ''}'
-            f'{self.datetime and f'  {self.datetime.strftime('%H:%M')}' or ''}'
-            f'{self.string and f'  {self.string}' or ''}'
+            f'{self.date and f"  {self.date}" or ""}'
+            f'{self.datetime and f"  {self.datetime.strftime('%H:%M')}" or ""}'
+            f'{self.string and f"  {self.string}" or ""}'
         )
 
 
@@ -129,12 +130,12 @@ class Task:
             p.name for p in TODO_STATE.projects if p.id == self.project_id
         )
         return (
-            f'{parent_task and f'   {parent_task.content} ' or ''}'
-            f'{self.is_completed and '  ' or '  '} {self.content} '
-            f'{self.labels and f' {' '.join(' '+l for l in self.labels)}' or ''}'
-            f'{self.due and f'{self.due}' or ''}'
-            f'{self.priority != Priority.P4 and f'  {self.priority.name}' or ''}'
-            f'{project_name != 'Inbox' and f'  {project_name}' or ''}'
+            f'{parent_task and f"   {parent_task.content} " or ""}'
+            f'{self.is_completed and "  " or "  "} {self.content} '
+            f'{self.labels and f" {' '.join(' ' + l for l in self.labels)}" or ""}'
+            f'{self.due and f"{self.due}" or ""}'
+            f'{self.priority != Priority.P4 and f"  {self.priority.name}" or ""}'
+            f'{project_name != "Inbox" and f"  {project_name}" or ""}'
         )
 
 
@@ -199,7 +200,7 @@ def compose2(f: Callable[[B], C], g: Callable[[A], B]) -> Callable[[A], C]:
 
 
 def get_object_url_path(url: str) -> str:
-    return f'{BASE_URL}/{url.removeprefix(BASE_URL + '/').partition('/')[0]}'
+    return f'{BASE_URL}/{url.removeprefix(BASE_URL + "/").partition("/")[0]}'
 
 
 def create_url(url: str, params: dict) -> str:
@@ -248,7 +249,7 @@ def request(
         res = urllib.request.urlopen(req, timeout=5)
         if not 200 <= res.status <= 300:
             raise Exception(
-                f'Todoist responded with code: {res.status}, content: {res.read().decode('utf-8')}'
+                f'Todoist responded with code: {res.status}, content: {res.read().decode("utf-8")}'
             )
         return res
     except urllib.error.URLError as e:

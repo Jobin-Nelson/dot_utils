@@ -6,5 +6,6 @@ all: migrate
 .PHONY: migrate
 migrate:
 	cp -u $(SCRIPTS) $(LOCAL_BIN)
+	rm -f ~/.local/bin/__init__.py
 	
 
