@@ -21,19 +21,18 @@ from collections import deque
 from contextlib import contextmanager, suppress
 from enum import IntEnum
 from functools import partial
-from itertools import compress, filterfalse, tee, islice
+from itertools import compress, filterfalse, islice, tee
 from operator import methodcaller, not_
 from pathlib import Path
 from typing import (
+    Callable,
+    Generator,
     Iterable,
     NoReturn,
+    Protocol,
     Sequence,
     TypeVar,
-    Callable,
-    Protocol,
-    Generator,
 )
-
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                       Error Codes                        ┃
@@ -57,6 +56,69 @@ class EDT(Protocol):
     def decrypt(self) -> None: ...
 
 
+class Gpg:
+    executable = 'gpg'
+    __args = [
+        '--pinentry-mode',
+        'loopback',
+        '--armor',
+    ]
+
+    def __init__(self, in_file: Path) -> None:
+        self.in_file = in_file
+
+    def _cmd(self) -> list[str]:
+        return [self.executable] + self.__args
+
+    def _encrypt_cmd(self) -> list[str]:
+        return self._cmd() + [
+            '--symmetric',
+            '--cipher-algo',
+            'aes256',
+            '--digest-algo',
+            'sha512',
+            '--cert-digest-algo',
+            'sha512',
+            '--compress-algo',
+            'none',
+            '-z',
+            '0',
+            '--s2k-mode',
+            '3',
+            '--s2k-digest-algo',
+            'sha512',
+            '--s2k-count',
+            '65011712',
+            '--force-mdc',
+            '--no-symkey-cache',
+        ]
+
+    def _decrypt_cmd(self) -> list[str]:
+        return self._cmd() + ['--decrypt']
+
+    def _get_in_file_arg(self) -> list[str]:
+        return [str(self.in_file)]
+
+    def _get_out_file_arg(self, out_file: str | Path) -> list[str]:
+        return ['--output', str(out_file)]
+
+    def encrypt(self, out_file: str | Path) -> None:
+        exec_cmd(
+            self._encrypt_cmd()
+            + self._get_out_file_arg(out_file)
+            + self._get_in_file_arg(),
+            'Encryption failed',
+        )
+
+    def decrypt(self, out_file: str | Path) -> None:
+        exec_cmd(
+            self._decrypt_cmd()
+            + self._get_out_file_arg(out_file)
+            + self._get_in_file_arg(),
+            'Decryption failed',
+        )
+
+
 class OpenSSL:
     executable = 'openssl'
     __args = [
@@ -75,7 +137,7 @@ class OpenSSL:
         self.in_file = in_file
 
     def _cmd(self) -> list[str]:
-        return [OpenSSL.executable] + OpenSSL.__args + self._get_in_file_arg()
+        return [self.executable] + self.__args + self._get_in_file_arg()
 
     def _encrypt_cmd(self) -> list[str]:
         return self._cmd() + ['-e']
@@ -205,7 +267,14 @@ def stage_n_cleanup(
     input_paths1, input_paths2 = tee(map(to_path, input_files))
     missing_paths = filterfalse(is_present, input_paths1)
     existing_paths = filter(is_present, input_paths2)
+
+    # Warn about missing paths
     print_prefix('Missing path:', missing_paths)
+
+    # Exit if the output dir already exists
+    if output_dir.exists():
+        bail(f'{output_dir} already exists', ExitCode.FILE_EXISTS)
+
     # in case failure occurs before this variable is binded again
     compressed_output = output_dir
 
@@ -247,19 +316,21 @@ def unarchive_n_cleanup(filepath: Path) -> None:
 
 
 def encrypt(args: argparse.Namespace) -> None:
+    tool = Gpg if args.tool == 'gpg' else OpenSSL
     with stage_n_cleanup(args.input, args.output) as compressed_output:
         encrypted_output = compressed_output.with_suffix(
             compressed_output.suffix + '.enc'
         )
-        openssl = OpenSSL(compressed_output)
-        openssl.encrypt(encrypted_output)
+        edt = tool(compressed_output)
+        edt.encrypt(encrypted_output)
 
 
 def decrypt(args: argparse.Namespace) -> None:
+    tool = Gpg if args.tool == 'gpg' else OpenSSL
     encrypted_file = to_path(args.input)
     decrypted_file = encrypted_file.parent / encrypted_file.stem
-    openssl = OpenSSL(encrypted_file)
-    openssl.decrypt(decrypted_file)
+    edt = tool(encrypted_file)
+    edt.decrypt(decrypted_file)
     unarchive_n_cleanup(decrypted_file)
 
 
@@ -278,8 +349,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         description='After the Allfather, symbolizing wisdom and secrecy',
         epilog='No gaze shall graze your secrets',
     )
+    parser.add_argument(
+        '-t',
+        '--tool',
+        choices=['gpg', 'openssl'],
+        help='Tool to use (default: %(default)s)',
+        default='gpg',
+    )
     subparser = parser.add_subparsers(required=True)
 
+    # encrypt subcommand
     enc_parser = subparser.add_parser('encrypt')
     enc_parser.add_argument(
         '-i',
@@ -298,6 +377,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     enc_parser.set_defaults(func=encrypt)
 
+    # decrypt subcommand
     dec_parser = subparser.add_parser('decrypt')
     dec_parser.add_argument(
         '-i', '--input', type=Path, help='File to be decrypted', required=True
