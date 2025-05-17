@@ -12,10 +12,11 @@
     in
     {
       devShells.${system}.default = pkgs.mkShell {
-        nativeBuildInputs = with pkgs; [
+        packages = with pkgs; [
           python312
           uv
           ruff
+          gnumake
         ];
         shellHook = ''
           echo "Welcome to dot-utils Development Environment"
