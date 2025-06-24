@@ -22,7 +22,6 @@ from functools import partial
 from pathlib import Path
 from typing import Callable
 
-
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                    Global Variables                      ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -161,11 +160,20 @@ def hook_cleanup_handler(tasks: list, end_queue: asyncio.Queue):
 async def _controller() -> int:
     home = Path.home()
     dotfiles = home / '.dotfiles'
-    projects = (p for p in (home / 'playground' / 'projects').iterdir() if p.is_dir())
-    extra_repos = [home / '.config' / 'nvim', home / '.password-store']
+    project_path = home / 'playground' / 'projects'
+    extra_paths = [
+        home / '.config' / 'nvim',
+        home / '.password-store',
+        home / '.config' / 'nixos-config',
+        home / 'playground' / 'lab',
+    ]
 
-    batch = [Git(p) for p in itertools.chain(projects, extra_repos)]
-    batch.append(Git(home, dotfiles, home))
+    projects = [p for p in project_path.iterdir() if p.is_dir()]
+    extra_repos = [p for p in extra_paths if p.is_dir()]
+
+    batch = [Git(p) for p in itertools.chain(projects, extra_repos)] + [
+        Git(home, dotfiles, home)
+    ]
 
     tasks = []
     commit_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
@@ -207,7 +215,7 @@ def check_requirements():
         'git',
         # 'gclone.sh',
     ]
-    not_found = list(filter(lambda x: not shutil.which(x), executables))
+    not_found = [e for e in executables if not shutil.which(e)]
     if not_found:
         raise SystemExit(f"Executable {', '.join(not_found)} not found in PATH")
 

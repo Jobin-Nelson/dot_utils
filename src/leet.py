@@ -25,7 +25,6 @@ from contextlib import closing
 from pathlib import Path
 from typing import Sequence
 
-
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                    Global Variables                      ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -69,7 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         daily_qn_link = get_daily_qn_link()
     except urllib.error.URLError:
         print(
-            f'Unable to get response from leetcode. Check your network connection',
+            'Unable to get response from leetcode. Check your network connection',
             file=sys.stderr,
         )
         return 1

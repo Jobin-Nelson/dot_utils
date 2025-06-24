@@ -14,7 +14,6 @@ Script to interact with Todoist
 
 from __future__ import annotations
 
-
 import argparse
 import json
 import os
@@ -23,14 +22,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import dataclass, asdict, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime
 from enum import IntEnum, StrEnum
 from functools import partial
 from http.client import HTTPResponse
 from pathlib import Path
-from typing import NamedTuple, NoReturn, Sequence, Optional, TypeVar, Callable
-
+from typing import Callable, NamedTuple, NoReturn, Optional, Sequence, TypeVar
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                          Types                           ┃
@@ -132,7 +130,7 @@ class Task:
         return (
             f'{parent_task and f"   {parent_task.content} " or ""}'
             f'{self.is_completed and "  " or "  "} {self.content} '
-            f'{self.labels and f" {' '.join(' ' + l for l in self.labels)}" or ""}'
+            f'{self.labels and f" {' '.join(' ' + lb for lb in self.labels)}" or ""}'
             f'{self.due and f"{self.due}" or ""}'
             f'{self.priority != Priority.P4 and f"  {self.priority.name}" or ""}'
             f'{project_name != "Inbox" and f"  {project_name}" or ""}'
@@ -232,7 +230,7 @@ def request(
     url: str,
     data: dict | None = None,
     method: str = 'GET',
-    headers: dict[str, str] = {},
+    headers: dict[str, str] = {},  # noqa: B006
 ) -> HTTPResponse:
     default_headers = {
         'Content-Type': 'application/json',
@@ -293,8 +291,8 @@ def task2Dict(t: Task) -> dict:
     return task_dict | {'due_' + k: v for k, v in due_dict.items()}
 
 
-def label2Dict(l: Label) -> dict:
-    label_dict = asdict(l)
+def label2Dict(lb: Label) -> dict:
+    label_dict = asdict(lb)
     label_dict.pop('id', None)
     return label_dict
 
@@ -360,8 +358,8 @@ def get_projects(refresh: bool = False) -> list[Project]:
 
 def get_labels(refresh: bool = False) -> list[Label]:
     return [
-        dict2Label(l)
-        for l in get_object(
+        dict2Label(lb)
+        for lb in get_object(
             f'{BASE_URL}/labels',
             TODO_STATE_PATH.labels,
             ExitCode.LABEL_NOT_FOUND,
@@ -444,8 +442,8 @@ def display_projects(refresh: bool) -> None:
 
 
 def display_labels(refresh: bool) -> None:
-    for l in get_labels(refresh):
-        print(l)
+    for lb in get_labels(refresh):
+        print(lb)
 
 
 def display_tasks() -> None:
@@ -535,7 +533,7 @@ def delete_task_controller(args: argparse.Namespace) -> None:
 
 
 def delete_label_controller(args: argparse.Namespace) -> None:
-    labels_to_delete = [l for l in get_labels() if l.name in args.name]
+    labels_to_delete = [lb for lb in get_labels() if lb.name in args.name]
     for label in labels_to_delete:
         delete_label(label)
 
@@ -567,11 +565,11 @@ def list_controller(args: argparse.Namespace) -> None:
         for p in get_projects():
             print(p.name)
     elif args.label:
-        for l in get_labels():
-            print(l.name)
+        for lb in get_labels():
+            print(lb.name)
     elif args.priority:
-        for l in Priority:
-            print(l.value)
+        for lb in Priority:
+            print(lb.value)
     elif args.task:
         for t in get_active_tasks():
             print(t.content)
@@ -585,7 +583,7 @@ def list_controller(args: argparse.Namespace) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     # valid values
     valid_projects = [p.name for p in get_projects()]
-    valid_labels = [l.name for l in get_labels()]
+    valid_labels = [lb.name for lb in get_labels()]
     valid_priorities = [p.value for p in Priority]
     tasks_length = len(get_active_tasks())
 
@@ -711,7 +709,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     delete_label_parser = delete_obj_parser.add_parser('label', help='Delete a label')
     delete_label_parser.add_argument(
         'name',
-        help=f'Delete label',
+        help='Delete label',
         choices=valid_labels,
         nargs='+',
     )

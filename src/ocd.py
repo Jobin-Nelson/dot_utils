@@ -18,8 +18,7 @@ from enum import IntEnum
 from functools import partial
 from operator import attrgetter, truediv
 from pathlib import Path
-from typing import NoReturn, Sequence, TypeVar, Callable
-
+from typing import Callable, NoReturn, Sequence, TypeVar
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                       Error Codes                        ┃
