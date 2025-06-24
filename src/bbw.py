@@ -19,6 +19,7 @@ import itertools
 import shutil
 from dataclasses import dataclass, field
 from functools import partial
+from itertools import pairwise
 from pathlib import Path
 from typing import Callable
 
@@ -193,21 +194,23 @@ async def _controller() -> int:
     producer_completed = asyncio.Event()
     producer_completed.clear()
 
+    # load all repos to add_queue
     await _producer(batch, add_queue, producer_completed)
 
+    queues = [add_queue, commit_queue, push_queue, status_queue, result_queue]
+    callbacks = [add_callback, commit_callback, push_callback, status_callback]
     hook_workers = partial(hook_workers_handler, tasks)
-    hook_workers(add_queue, commit_queue, add_callback)
-    hook_workers(commit_queue, push_queue, commit_callback)
-    hook_workers(push_queue, status_queue, push_callback)
-    hook_workers(status_queue, result_queue, status_callback)
+    for (in_queue, out_queue), callback in zip(
+        pairwise(queues), callbacks, strict=True
+    ):
+        hook_workers(in_queue, out_queue, callback)
+
+    # process result_queue
     hook_cleanup_handler(tasks, result_queue)
 
     await producer_completed.wait()
-    await add_queue.join()
-    await commit_queue.join()
-    await push_queue.join()
-    await status_queue.join()
-    await result_queue.join()
+    for queue in queues:
+        await queue.join()
 
     for task in tasks:
         task.cancel()
