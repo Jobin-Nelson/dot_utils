@@ -26,9 +26,9 @@ from typing import Callable
 # ┃                    Global Variables                      ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-# Actual workers are NUM_WORKERS * 4 (commit, push, status, result)
+# Actual workers are NUM_WORKERS * 4 (add, commit, push, status, result)
 NUM_WORKERS = 5
-QUEUE_MAX_SIZE = 20
+QUEUE_MAX_SIZE = 25
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -52,6 +52,10 @@ class Git:
             self.cmd.extend(['--git-dir', str(self.git_dir)])
         if self.work_tree:
             self.cmd.extend(['--work-tree', str(self.work_tree)])
+
+    async def add(self):
+        add_args = ['add', '-u']
+        self.proc = await exec_cmd(self.cmd + add_args)
 
     async def commit(self):
         commit_args = [
@@ -123,6 +127,10 @@ async def _janitor(queue: asyncio.Queue):
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
+def add_callback(git: Git):
+    return git.add
+
+
 def commit_callback(git: Git):
     return git.commit
 
@@ -176,6 +184,7 @@ async def _controller() -> int:
     ]
 
     tasks = []
+    add_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
     commit_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
     push_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
     status_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
@@ -184,15 +193,17 @@ async def _controller() -> int:
     producer_completed = asyncio.Event()
     producer_completed.clear()
 
-    await _producer(batch, commit_queue, producer_completed)
+    await _producer(batch, add_queue, producer_completed)
 
     hook_workers = partial(hook_workers_handler, tasks)
+    hook_workers(add_queue, commit_queue, add_callback)
     hook_workers(commit_queue, push_queue, commit_callback)
     hook_workers(push_queue, status_queue, push_callback)
     hook_workers(status_queue, result_queue, status_callback)
     hook_cleanup_handler(tasks, result_queue)
 
     await producer_completed.wait()
+    await add_queue.join()
     await commit_queue.join()
     await push_queue.join()
     await status_queue.join()
