@@ -40,6 +40,7 @@ class Git:
             self.cmd.extend(['--work-tree', str(self.work_tree)])
 
     async def commit(self):
+        print(f'{self.cwd} commiting')
         commit_args = [
             'commit',
             '--no-gpg-sign',
@@ -50,10 +51,12 @@ class Git:
         await exec_cmd(self.cmd + commit_args)
 
     async def push(self):
+        print(f'{self.cwd} pushing')
         push_args = ['push', 'origin', 'HEAD']
         await exec_cmd(self.cmd + push_args)
 
     async def status(self):
+        print(f'{self.cwd} status')
         status_args = ['status', '--porcelain']
         if self.git_dir is None:
             status_args.append('--untracked-files=normal')
