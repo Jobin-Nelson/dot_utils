@@ -39,10 +39,6 @@ class Git:
         if self.work_tree:
             self.cmd.extend(['--work-tree', str(self.work_tree)])
 
-    async def add(self):
-        add_args = ['add', '-u']
-        await exec_cmd(self.cmd + add_args)
-
     async def commit(self):
         commit_args = [
             'commit',
@@ -84,7 +80,6 @@ async def exec_cmd(cmd: list[str], cap_output: bool = False) -> bytes:
 
 
 async def worker(git: Git):
-    await git.add()
     await git.commit()
     await git.push()
     await git.status()
