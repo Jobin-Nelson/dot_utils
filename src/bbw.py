@@ -95,10 +95,13 @@ async def exec_cmd(cmd: list[str], cap_output: bool = False):
 
 
 async def _producer(
-    batch: list[Git], work_queue: asyncio.Queue, producer_completed: asyncio.Event
+    tg: asyncio.TaskGroup,
+    batch: list[Git],
+    work_queue: asyncio.Queue,
+    producer_completed: asyncio.Event,
 ):
     for job in batch:
-        await work_queue.put(job)
+        tg.create_task(work_queue.put(job))
     producer_completed.set()
 
 
@@ -150,15 +153,18 @@ def status_callback(git: Git):
 
 
 def hook_workers_handler(
-    tasks: list, in_queue: asyncio.Queue, out_queue: asyncio.Queue, callback: Callable
+    tg: asyncio.TaskGroup,
+    in_queue: asyncio.Queue,
+    out_queue: asyncio.Queue,
+    callback: Callable,
 ):
     for _ in range(NUM_WORKERS):
-        tasks.append(asyncio.create_task(_worker(in_queue, out_queue, callback)))
+        tg.create_task(_worker(in_queue, out_queue, callback))
 
 
-def hook_cleanup_handler(tasks: list, end_queue: asyncio.Queue):
+def hook_cleanup_handler(tg: asyncio.TaskGroup, end_queue: asyncio.Queue):
     for _ in range(NUM_WORKERS):
-        tasks.append(asyncio.create_task(_janitor(end_queue)))
+        tg.create_task(_janitor(end_queue))
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -188,7 +194,6 @@ def get_repos() -> list[Git]:
 async def _controller() -> int:
     batch = get_repos()
 
-    tasks = []
     queues = [
         asyncio.Queue(maxsize=QUEUE_MAX_SIZE),  # add queue
         asyncio.Queue(maxsize=QUEUE_MAX_SIZE),  # commit queue
@@ -201,26 +206,22 @@ async def _controller() -> int:
     producer_completed = asyncio.Event()
     producer_completed.clear()
 
-    # load all repos to first queue
-    await _producer(batch, queues[0], producer_completed)
+    async with asyncio.TaskGroup() as tg:
+        # load all repos to first queue
+        await _producer(tg, batch, queues[0], producer_completed)
 
-    hook_workers = partial(hook_workers_handler, tasks)
-    for (in_queue, out_queue), callback in zip(
-        pairwise(queues), callbacks, strict=True
-    ):
-        hook_workers(in_queue, out_queue, callback)
+        hook_workers = partial(hook_workers_handler, tg)
+        for (in_queue, out_queue), callback in zip(
+            pairwise(queues), callbacks, strict=True
+        ):
+            hook_workers(in_queue, out_queue, callback)
 
-    # cleanup last queue
-    hook_cleanup_handler(tasks, queues[-1])
+        # cleanup last queue
+        hook_cleanup_handler(tg, queues[-1])
 
-    await producer_completed.wait()
-    for queue in queues:
-        await queue.join()
-
-    for task in tasks:
-        task.cancel()
-
-    await asyncio.gather(*tasks, return_exceptions=True)
+        await producer_completed.wait()
+        for queue in queues:
+            await queue.join()
 
     return 0
 
