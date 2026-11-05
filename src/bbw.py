@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -20,19 +20,20 @@ from pathlib import Path
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-@dataclass
+@dataclass(frozen=True)
 class Git:
     cwd: Path
     git_dir: Path | None = None
     work_tree: Path | None = None
-    cmd: list[str] = field(init=False)
 
-    def __post_init__(self):
-        self.cmd = ['git', '-C', str(self.cwd)]
+    @property
+    def cmd_prefix(self) -> list[str]:
+        cmd = ['git', '-C', str(self.cwd)]
         if self.git_dir:
-            self.cmd.extend(['--git-dir', str(self.git_dir)])
+            cmd.extend(['--git-dir', str(self.git_dir)])
         if self.work_tree:
-            self.cmd.extend(['--work-tree', str(self.work_tree)])
+            cmd.extend(['--work-tree', str(self.work_tree)])
+        return cmd
 
     async def commit(self):
         commit_args = [
@@ -43,18 +44,17 @@ class Git:
             '-m',
             'chore: bbw.py backup commit',
         ]
-        await exec_cmd(self.cmd + commit_args)
+        await exec_cmd(self.cmd_prefix + commit_args)
 
     async def push(self):
         push_args = ['push', 'origin', 'HEAD']
-        await exec_cmd(self.cmd + push_args)
+        await exec_cmd(self.cmd_prefix + push_args)
 
     async def status(self):
         status_args = ['status', '--porcelain']
         if self.git_dir is None:
             status_args.append('--untracked-files=normal')
-        cmd = self.cmd + status_args
-        stdout = await exec_cmd(cmd, True)
+        stdout = await exec_cmd(self.cmd_prefix + status_args, True)
         if stdout:
             print(f'{self.cwd} repo is dirty')
 
