@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Script to calculate boost time
+Script to calculate boost time.
+All units are in minutes
 """
 
 import argparse
 import re
 import sys
 import unittest
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import IntEnum, StrEnum, auto
 from functools import partial
@@ -41,8 +43,51 @@ class UpgradeType(StrEnum):
     LAB = auto()
 
 
+@dataclass
+class Upgrade:
+    boost: int
+    time_left: timedelta
+    rem_boost: timedelta = timedelta(0)
+
+    def boost_time(self, num_boost: int = 1) -> timedelta:
+        task_minutes = timedelta2min(self.time_left)
+        rem_boost_minutes = timedelta2min(self.rem_boost)
+
+        boostable_minutes = BOOST_DURATION * num_boost
+        total_boost_minutes = boostable_minutes + rem_boost_minutes
+        total_boosted_minutes = total_boost_minutes * self.boost
+
+        return (
+            timedelta(
+                minutes=task_minutes - total_boosted_minutes + total_boost_minutes
+            )
+            if task_minutes > total_boosted_minutes
+            else self.max_boost_time()
+        )
+
+    def max_boost_time(self) -> timedelta:
+        task_minutes = timedelta2min(self.time_left)
+
+        return timedelta(minutes=task_minutes // self.boost)
+
+    def boosts_required(self) -> int:
+        task_minutes = timedelta2min(self.time_left)
+        rem_boost_minutes = timedelta2min(self.rem_boost)
+        covered_by_rem = rem_boost_minutes * self.boost
+
+        rem_task_minutes = task_minutes - covered_by_rem
+
+        if rem_task_minutes <= 0:
+            return 0
+
+        boosted_minutes = BOOST_DURATION * self.boost
+        n, res = divmod(rem_task_minutes, boosted_minutes)
+        return n + (1 if res else 0)
+
+
 class ExitCode(IntEnum):
     PARSE_FAILED = auto()
+    INCOMPATIBLE_BOOST = auto()
 
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -53,6 +98,18 @@ class ExitCode(IntEnum):
 def bail(message: str, code: ExitCode):
     print(message, file=sys.stderr)
     raise SystemExit(code.value)
+
+
+def get_boost(upgrade_type: UpgradeType) -> int:
+    match upgrade_type:
+        case UpgradeType.BUILD:
+            return BUILD_BOOST
+        case UpgradeType.LAB:
+            return LAB_BOOST
+
+
+def timedelta2min(t: timedelta) -> int:
+    return int(t.total_seconds()) // 60
 
 
 def dt2str(t: datetime) -> str:
@@ -90,60 +147,19 @@ def parse_timedelta(time_str: str) -> timedelta | None:
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-def boost_time(
-    t: timedelta, boost: int, num_boosts: int = 1, rem_boost: timedelta = timedelta(0)
-) -> timedelta:
-    total_minutes = int(t.total_seconds()) // 60
-    rem_boost_minutes = int(rem_boost.total_seconds()) // 60
-
-    boostable_minutes = BOOST_DURATION * num_boosts
-    total_boost_minutes = boostable_minutes + rem_boost_minutes
-    total_boosted_minutes = total_boost_minutes * boost
-
-    return (
-        timedelta(minutes=total_minutes - total_boosted_minutes + total_boost_minutes)
-        if total_minutes > total_boosted_minutes
-        else max_boost_time(t, boost)
-    )
-
-
-def max_boost_time(t: timedelta, boost: int) -> timedelta:
-    total_minutes = int(t.total_seconds()) // 60
-
-    return timedelta(minutes=total_minutes // boost)
-
-
-def boosts_required(t: timedelta, boost: int, rem_boost: timedelta) -> int:
-    task_minutes = int(t.total_seconds()) // 60
-    rem_boost_minutes = int(rem_boost.total_seconds()) // 60
-    covered_by_rem = rem_boost_minutes * boost
-
-    rem_task_minutes = task_minutes - covered_by_rem
-
-    if rem_task_minutes <= 0:
-        return 0
-
-    boosted_minutes = BOOST_DURATION * boost
-    n, res = divmod(rem_task_minutes, boosted_minutes)
-    return n + (1 if res else 0)
-
-
 def upgrade_times(upgrade_type: UpgradeType, args: argparse.Namespace) -> None:
-    boost = 0
-    match upgrade_type:
-        case UpgradeType.BUILD:
-            boost = BUILD_BOOST
-        case UpgradeType.LAB:
-            boost = LAB_BOOST
+    boost = get_boost(upgrade_type)
 
     now = datetime.now()
 
     time_left = args.time_left
 
-    rem_boost_time_left = boost_time(time_left, boost, 0, args.boost)
-    boosted_time_left = boost_time(time_left, boost, args.number, args.boost)
-    max_boosted_time_left = max_boost_time(time_left, boost)
-    max_boosts_required = boosts_required(time_left, boost, args.boost)
+    upgrade = Upgrade(boost, time_left, args.boost)
+
+    rem_boost_time_left = upgrade.boost_time(0)
+    boosted_time_left = upgrade.boost_time(args.number)
+    max_boosted_time_left = upgrade.max_boost_time()
+    max_boosts_required = upgrade.boosts_required()
 
     # Headers
     print('      DATETIME          | BOOST | REM TIME')
@@ -254,41 +270,47 @@ class TestTimeParse(unittest.TestCase):
 class TestBoost(unittest.TestCase):
     def test_build_boost(self):
         time_left = timedelta(hours=10)
+        upgrade = Upgrade(BUILD_BOOST, time_left)
         expected = timedelta(hours=1)
 
-        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST))
+        self.assertEqual(expected, upgrade.boost_time(1))
 
     def test_lab_boost(self):
         time_left = timedelta(hours=24)
+        upgrade = Upgrade(LAB_BOOST, time_left)
         expected = timedelta(hours=1)
 
-        self.assertEqual(expected, boost_time(time_left, LAB_BOOST))
+        self.assertEqual(expected, upgrade.boost_time(1))
 
     def test_build_boost_with_minutes(self):
         time_left = timedelta(hours=12, minutes=23)
+        upgrade = Upgrade(BUILD_BOOST, time_left)
         expected = timedelta(hours=3, minutes=23)
 
-        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST))
+        self.assertEqual(expected, upgrade.boost_time(1))
 
     def test_lab_boost_with_minutes(self):
         time_left = timedelta(days=1, hours=20, minutes=23)
+        upgrade = Upgrade(LAB_BOOST, time_left)
         expected = timedelta(hours=21, minutes=23)
 
-        self.assertEqual(expected, boost_time(time_left, LAB_BOOST))
+        self.assertEqual(expected, upgrade.boost_time(1))
 
     def test_build_boost_with_boost_left(self):
         time_left = timedelta(hours=15, minutes=23)
         boost_left = timedelta(minutes=30)
+        upgrade = Upgrade(BUILD_BOOST, time_left, boost_left)
         expected = timedelta(hours=1, minutes=53)
 
-        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST, 1, boost_left))
+        self.assertEqual(expected, upgrade.boost_time(1))
 
     def test_build_boost_with_no_boost_left(self):
         time_left = timedelta(hours=5)
         boost_left = timedelta(minutes=30)
+        upgrade = Upgrade(BUILD_BOOST, time_left, boost_left)
         expected = timedelta(minutes=30)
 
-        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST, 1, boost_left))
+        self.assertEqual(expected, upgrade.boost_time(1))
 
 
 if __name__ == '__main__':
