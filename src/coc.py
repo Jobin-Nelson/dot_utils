@@ -4,8 +4,11 @@ Script to calculate boost time
 """
 
 import argparse
+import re
+import sys
+import unittest
 from datetime import datetime, timedelta
-from enum import StrEnum, auto
+from enum import IntEnum, StrEnum, auto
 from functools import partial
 from typing import Sequence
 
@@ -21,6 +24,13 @@ BOOST_DURATION = 60
 # TIME FORMAT
 TIME_FORMAT = '%a %Y-%m-%d %I:%M %p'
 
+# Match groups for days, hours, minutes
+TIMEDELTA_REGEX = re.compile(
+    r'(?:(?P<days>\d+)d)?'
+    r'(?:(?P<hours>\d+)h)?'
+    r'(?:(?P<minutes>\d+)m)?'
+)
+
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                          Types                           ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -31,9 +41,18 @@ class UpgradeType(StrEnum):
     LAB = auto()
 
 
+class ExitCode(IntEnum):
+    PARSE_FAILED = auto()
+
+
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                    Utility Functions                     ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+def bail(message: str, code: ExitCode):
+    print(message, file=sys.stderr)
+    raise SystemExit(code.value)
 
 
 def dt2str(t: datetime) -> str:
@@ -57,19 +76,35 @@ def td2str(t: timedelta) -> str:
     return ', '.join(parts) if parts else '0 minutes'
 
 
+def parse_timedelta(time_str: str) -> timedelta | None:
+    parts = TIMEDELTA_REGEX.match(time_str.strip().lower())
+    if not parts:
+        bail('ERROR: Unable to parse time', ExitCode.PARSE_FAILED)
+
+    time_params = {k: int(v) for k, v in parts.groupdict().items() if v}  # pyright: ignore[reportOptionalMemberAccess]
+    return timedelta(**time_params)
+
+
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 # ┃                   Core Implementation                    ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 
-def boost_time(t: timedelta, boost: int, n: int = 1) -> timedelta:
+def boost_time(
+    t: timedelta, boost: int, num_boosts: int = 1, rem_boost: timedelta = timedelta(0)
+) -> timedelta:
     total_minutes = int(t.total_seconds()) // 60
+    rem_boost_minutes = int(rem_boost.total_seconds()) // 60
 
-    boosted_minutes = BOOST_DURATION * boost * n
-    if total_minutes > boosted_minutes:
-        return timedelta(minutes=total_minutes - boosted_minutes + BOOST_DURATION)
-    else:
-        return max_boost_time(t, boost)
+    boostable_minutes = BOOST_DURATION * num_boosts
+    total_boost_minutes = boostable_minutes + rem_boost_minutes
+    total_boosted_minutes = total_boost_minutes * boost
+
+    return (
+        timedelta(minutes=total_minutes - total_boosted_minutes + total_boost_minutes)
+        if total_minutes > total_boosted_minutes
+        else max_boost_time(t, boost)
+    )
 
 
 def max_boost_time(t: timedelta, boost: int) -> timedelta:
@@ -78,10 +113,19 @@ def max_boost_time(t: timedelta, boost: int) -> timedelta:
     return timedelta(minutes=total_minutes // boost)
 
 
-def boosts_required(t: timedelta, boost: int) -> int:
-    total_minutes = int(t.total_seconds()) // 60
+def boosts_required(t: timedelta, boost: int, rem_boost: timedelta) -> int:
+    task_minutes = int(t.total_seconds()) // 60
+    rem_boost_minutes = int(rem_boost.total_seconds()) // 60
+    covered_by_rem = rem_boost_minutes * boost
+
+    rem_task_minutes = task_minutes - covered_by_rem
+
+    if rem_task_minutes <= 0:
+        return 0
+
     boosted_minutes = BOOST_DURATION * boost
-    return total_minutes // boosted_minutes + 1
+    n, res = divmod(rem_task_minutes, boosted_minutes)
+    return n + (1 if res else 0)
 
 
 def upgrade_times(upgrade_type: UpgradeType, args: argparse.Namespace) -> None:
@@ -94,27 +138,28 @@ def upgrade_times(upgrade_type: UpgradeType, args: argparse.Namespace) -> None:
 
     now = datetime.now()
 
-    time_left = timedelta(0)
-    if args.days:
-        time_left += args.days
-    if args.hours:
-        time_left += args.hours
-    if args.minutes:
-        time_left += args.minutes
+    time_left = args.time_left
 
-    boosted_time_left = boost_time(time_left, boost, args.number)
+    rem_boost_time_left = boost_time(time_left, boost, 0, args.boost)
+    boosted_time_left = boost_time(time_left, boost, args.number, args.boost)
     max_boosted_time_left = max_boost_time(time_left, boost)
-    max_boosts_required = boosts_required(time_left, boost)
+    max_boosts_required = boosts_required(time_left, boost, args.boost)
+
+    # Headers
+    print('      DATETIME          | BOOST | REM TIME')
+    print('      --------          | ----- | --------')
 
     # Time left without boost
-    print(f'{dt2str(now + time_left)} |  0 boost | {td2str(time_left)}')
+    print(
+        f'{dt2str(now + rem_boost_time_left)} |   0   | {td2str(rem_boost_time_left)}'
+    )
     # Time left with n boost
     print(
-        f'{dt2str(now + boosted_time_left)} | {args.number:2} boost | {td2str(boosted_time_left)}'
+        f'{dt2str(now + boosted_time_left)} |  {args.number:2}   | {td2str(boosted_time_left)}'
     )
     # Time left with max boost
     print(
-        f'{dt2str(now + max_boosted_time_left)} | {max_boosts_required:2} boost | {td2str(max_boosted_time_left)}'
+        f'{dt2str(now + max_boosted_time_left)} |  {max_boosts_required:2}   | {td2str(max_boosted_time_left)}'
     )
 
 
@@ -137,22 +182,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         UpgradeType.BUILD.value, aliases=[UpgradeType.BUILD.value[0]]
     )
     build.add_argument(
-        '-d',
-        '--days',
-        type=lambda x: timedelta(days=float(x)),
-        help='Time left in days',
-    )
-    build.add_argument(
-        '-H',
-        '--hours',
-        type=lambda x: timedelta(hours=float(x)),
-        help='Time left in hours',
-    )
-    build.add_argument(
-        '-m',
-        '--minutes',
-        type=lambda x: timedelta(minutes=float(x)),
-        help='Time left in minutes',
+        'time_left',
+        type=parse_timedelta,
+        help="Time left in dhm format",
     )
     build.add_argument(
         '-n',
@@ -160,6 +192,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=1,
         help='Number of boosts',
+    )
+    build.add_argument(
+        '-b',
+        '--boost',
+        type=parse_timedelta,
+        default=timedelta(0),
+        help='boost left',
     )
     build.set_defaults(func=build_times)
 
@@ -168,22 +207,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         UpgradeType.LAB.value, aliases=[UpgradeType.LAB.value[0]]
     )
     lab.add_argument(
-        '-d',
-        '--days',
-        type=lambda x: timedelta(days=float(x)),
-        help='Time left in days',
-    )
-    lab.add_argument(
-        '-H',
-        '--hours',
-        type=lambda x: timedelta(hours=float(x)),
-        help='Time left in hours',
-    )
-    lab.add_argument(
-        '-m',
-        '--minutes',
-        type=lambda x: timedelta(minutes=float(x)),
-        help='Time left in minutes',
+        'time_left',
+        type=parse_timedelta,
+        help="Time left in dhm format",
     )
     lab.add_argument(
         '-n',
@@ -192,6 +218,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=1,
         help='Number of boosts',
     )
+    lab.add_argument(
+        '-b',
+        '--boost',
+        type=parse_timedelta,
+        default=timedelta(0),
+        help='boost left',
+    )
     lab.set_defaults(func=lab_times)
 
     args = parser.parse_args(argv)
@@ -199,6 +232,63 @@ def main(argv: Sequence[str] | None = None) -> int:
     args.func(args)
 
     return 0
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃                       Unit Tests                         ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+class TestTimeParse(unittest.TestCase):
+    def test_dhm(self):
+        t = '2d3h5m'
+        expected = timedelta(days=2, hours=3, minutes=5)
+        self.assertEqual(expected, parse_timedelta(t))
+
+    def test_hm_with_multiple_digits(self):
+        t = '3h10m'
+        expected = timedelta(hours=3, minutes=10)
+        self.assertEqual(expected, parse_timedelta(t))
+
+
+class TestBoost(unittest.TestCase):
+    def test_build_boost(self):
+        time_left = timedelta(hours=10)
+        expected = timedelta(hours=1)
+
+        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST))
+
+    def test_lab_boost(self):
+        time_left = timedelta(hours=24)
+        expected = timedelta(hours=1)
+
+        self.assertEqual(expected, boost_time(time_left, LAB_BOOST))
+
+    def test_build_boost_with_minutes(self):
+        time_left = timedelta(hours=12, minutes=23)
+        expected = timedelta(hours=3, minutes=23)
+
+        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST))
+
+    def test_lab_boost_with_minutes(self):
+        time_left = timedelta(days=1, hours=20, minutes=23)
+        expected = timedelta(hours=21, minutes=23)
+
+        self.assertEqual(expected, boost_time(time_left, LAB_BOOST))
+
+    def test_build_boost_with_boost_left(self):
+        time_left = timedelta(hours=15, minutes=23)
+        boost_left = timedelta(minutes=30)
+        expected = timedelta(hours=1, minutes=53)
+
+        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST, 1, boost_left))
+
+    def test_build_boost_with_no_boost_left(self):
+        time_left = timedelta(hours=5)
+        boost_left = timedelta(minutes=30)
+        expected = timedelta(minutes=30)
+
+        self.assertEqual(expected, boost_time(time_left, BUILD_BOOST, 1, boost_left))
 
 
 if __name__ == '__main__':
