@@ -164,6 +164,7 @@ def upgrade_times(upgrade_type: UpgradeType, args: argparse.Namespace) -> None:
     max_boosts_required = rem_boost_upgrade.boosts_required(boost)
 
     # Headers
+    print()
     print('      DATETIME          | BOOST | REM TIME')
     print('      --------          | ----- | --------')
 
