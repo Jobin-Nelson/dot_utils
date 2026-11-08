@@ -62,26 +62,23 @@ class Upgrade:
     time_left: timedelta
 
     def max_boost_time(self, boost: Boost) -> Upgrade:
-        task_minutes = timedelta2min(self.time_left)
-
-        return Upgrade(timedelta(minutes=task_minutes // boost.value))
+        return Upgrade(self.time_left / boost.value)
 
     def boosts_required(self, boost: Boost) -> int:
-        task_minutes = timedelta2min(self.time_left)
-        boost_minutes = timedelta2min(boost.duration)
-        boosted_minutes = boost_minutes * boost.value
-        n, res = divmod(task_minutes, boosted_minutes)
-        return n + (1 if res else 0)
+        task_time = self.time_left
+        boosted_time = boost.duration * boost.value
+        n, res = divmod(task_time, boosted_time)
+        return n + (1 if res.total_seconds() > 0 else 0)
 
     def apply_boost(self, boost: Boost) -> Upgrade:
-        task_minutes = timedelta2min(self.time_left)
-        boost_minutes = timedelta2min(boost.duration)
+        task_time = self.time_left
+        boost_time = boost.duration
 
-        boosted_minutes = boost_minutes * boost.value
+        boosted_time = boost_time * boost.value
 
         return (
-            Upgrade(timedelta(minutes=task_minutes - boosted_minutes + boost_minutes))
-            if task_minutes > boosted_minutes
+            Upgrade(task_time - boosted_time + boost_time)
+            if task_time > boosted_time
             else self.max_boost_time(boost)
         )
 
@@ -109,10 +106,6 @@ def get_boost_value(upgrade_type: UpgradeType) -> int:
             return LAB_BOOST
 
 
-def timedelta2min(t: timedelta) -> int:
-    return int(t.total_seconds()) // 60
-
-
 def dt2str(t: datetime) -> str:
     return t.strftime(TIME_FORMAT)
 
@@ -134,7 +127,7 @@ def td2str(t: timedelta) -> str:
     return ', '.join(parts) if parts else '0 minutes'
 
 
-def parse_timedelta(time_str: str) -> timedelta | None:
+def parse_timedelta(time_str: str) -> timedelta:
     parts = TIMEDELTA_REGEX.match(time_str.strip().lower())
     if not parts:
         bail('ERROR: Unable to parse time', ExitCode.PARSE_FAILED)
