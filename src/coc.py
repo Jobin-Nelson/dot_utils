@@ -56,6 +56,9 @@ class Boost:
             )
         return Boost(self.value, self.duration + other.duration)
 
+    def get_boosted_time(self) -> timedelta:
+        return self.duration * self.value
+
 
 @dataclass
 class Upgrade:
@@ -66,21 +69,22 @@ class Upgrade:
 
     def boosts_required(self, boost: Boost) -> int:
         task_time = self.time_left
-        boosted_time = boost.duration * boost.value
+        boosted_time = boost.get_boosted_time()
         n, res = divmod(task_time, boosted_time)
         return n + (1 if res.total_seconds() > 0 else 0)
 
     def apply_boost(self, boost: Boost) -> Upgrade:
-        task_time = self.time_left
-        boost_time = boost.duration
-
-        boosted_time = boost_time * boost.value
-
         return (
-            Upgrade(task_time - boosted_time + boost_time)
-            if task_time > boosted_time
-            else self.max_boost_time(boost)
+            self.max_boost_time(boost)
+            if self.is_covered_by_boost(boost)
+            else Upgrade(self.time_left - boost.get_boosted_time() + boost.duration)
         )
+
+    def rem_upgrade(self, boost: Boost) -> Upgrade:
+        return Upgrade(max(self.time_left - boost.get_boosted_time(), timedelta(0)))
+
+    def is_covered_by_boost(self, boost: Boost) -> bool:
+        return boost.get_boosted_time() >= self.time_left
 
 
 class ExitCode(IntEnum):
@@ -149,12 +153,12 @@ def upgrade_times(upgrade_type: UpgradeType, args: argparse.Namespace) -> None:
     upgrade = Upgrade(args.time_left)
     rem_boost = Boost(boost_value, args.boost)
     boost = Boost(boost_value)
-    rem_boost_upgrade = upgrade.apply_boost(rem_boost)
+    rem_upgrade = upgrade.rem_upgrade(rem_boost)
 
-    rem_boost_time_left = rem_boost_upgrade.time_left
+    rem_boost_time_left = upgrade.apply_boost(rem_boost).time_left
     boosted_time_left = upgrade.apply_boost(boost + rem_boost).time_left
     max_boosted_time_left = upgrade.max_boost_time(boost).time_left
-    max_boosts_required = rem_boost_upgrade.boosts_required(boost)
+    max_boosts_required = rem_upgrade.boosts_required(boost)
 
     # Headers
     print()
@@ -311,6 +315,15 @@ class TestBoost(unittest.TestCase):
         expected = timedelta(minutes=30)
 
         self.assertEqual(expected, upgrade.apply_boost(boost).time_left)
+
+    def test_max_boost_required(self):
+        time_left = timedelta(hours=8)
+        upgrade = Upgrade(time_left)
+        boost = Boost(BUILD_BOOST, timedelta(minutes=50))
+        rem_upgrade = upgrade.rem_upgrade(boost)
+        expected = 0
+
+        self.assertEqual(expected, rem_upgrade.boosts_required(boost))
 
 
 if __name__ == '__main__':
